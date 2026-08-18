@@ -1,44 +1,57 @@
-# [Project name]
+# SpiderSmm
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Arabic social media marketing service panel imported from the attached Python application.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/spider-smm run dev` — run the SpiderSmm web panel
+- `pnpm --filter @workspace/api-server run dev` — run the shared API server
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- The SpiderSmm panel stores its local JSON data beside `main.py` and listens on the workflow-provided `PORT`.
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
+- pnpm workspaces, Node.js 24, Python 3
+- SpiderSmm: Python standard-library HTTP server with Arabic RTL HTML/CSS UI
+- Shared API: Express 5
+- DB libraries: PostgreSQL + Drizzle ORM
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Build: esbuild for the shared API and Python bytecode validation for SpiderSmm
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/spider-smm/main.py` — imported SpiderSmm application and page/router behavior
+- `artifacts/spider-smm/requirements.txt` — original Python dependency list
+- `artifacts/api-server/` — shared Express API service
+- `lib/api-spec/openapi.yaml` — API contract source of truth
+- `lib/db/src/schema/` — database schema source of truth
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The attached Python application remains the source of truth for the SpiderSmm user experience.
+- The web artifact launches the Python HTTP server directly so its existing forms, sessions, and routes work without a frontend rewrite.
+- The artifact root path is reserved for SpiderSmm so the preview opens directly to the login experience.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Arabic RTL social media marketing service panel
+- User registration and login
+- Service catalog and order placement
+- Order history and account settings
+- Admin panel for services, balances, users, and site status
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+No additional preferences recorded.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Run the SpiderSmm workflow rather than the shared API workflow when previewing the user-facing panel.
+- The imported app uses its own JSON file for local persistence and initializes its data on startup.
 
 ## Pointers
 

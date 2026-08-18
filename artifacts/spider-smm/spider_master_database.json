@@ -1,0 +1,14 @@
+{
+    "users": {
+        "admin": {
+            "pass": "a24d8b3fdcd24387f3f1903aa3c796a5a011cc8ef0e13855667d8d517112989d",
+            "balance": 0,
+            "is_admin": true,
+            "phone": "000"
+        }
+    },
+    "services": [],
+    "orders": [],
+    "announcement": "مرحباً بك في عالم الفخامة الرقمية!",
+    "is_active": true
+}
