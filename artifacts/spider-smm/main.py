@@ -625,6 +625,7 @@ def get_orders_page(db, user):
         cancel_action = ""
         if status in ("قيد التنفيذ", "معلّق") and str(o.get("remote_id", "")).startswith("LOCAL-"):
             cancel_action = f"""<a class="pill" style="margin-top:7px;color:#ff6b7a;border-color:rgba(255,107,122,.3);" href="/cancel_order?id={h(o.get('id'))}" onclick="return confirm('هل تريد إلغاء هذا الطلب واسترداد تكلفته؟')">إلغاء واسترداد</a>"""
+        repeat_action = f"""<a class="pill" style="margin-top:7px;color:var(--cyan);border-color:rgba(111,209,215,.3);" href="/repeat_order?id={h(o.get('id'))}"><i class="fas fa-rotate-right"></i> إعادة الطلب</a>"""
         orders_html += f"""
         <div class="order-row order-card" data-service="{h(o.get('svc'))}" data-status="{h(status)}">
             <div>
@@ -632,7 +633,7 @@ def get_orders_page(db, user):
                 <div style="font-size:12px; opacity:0.6;">الكمية: {h(o.get('qty'))} | التكلفة: {money(o.get('cost'))}</div>
                 <div style="font-size:11px; opacity:0.45;">{h(o.get('created_at', ''))}</div>
             </div>
-            <div style="color:{status_color}; font-weight:bold; font-size:14px;text-align:left;">{h(status)}<br>{cancel_action}</div>
+            <div style="color:{status_color}; font-weight:bold; font-size:14px;text-align:left;">{h(status)}<br>{repeat_action}{cancel_action}</div>
         </div>"""
     if not orders_html:
         orders_html = "<p style='text-align:center; opacity:0.5; margin-top:50px;'>ليس لديك طلبات سابقة</p>"
@@ -678,6 +679,7 @@ def get_settings_page(db, user):
             <div class="settings-list">
                 <a href="/order_history" class="settings-item"><i class="fas fa-history"></i><span class="text">سجل طلباتي</span><i class="fas fa-chevron-left chevron"></i></a>
                 <a href="/topup" class="settings-item"><i class="fas fa-wallet"></i><span class="text">شحن الرصيد</span><span class="badge">طلب جديد</span><i class="fas fa-chevron-left chevron"></i></a>
+                <a href="/balance_history" class="settings-item"><i class="fas fa-receipt"></i><span class="text">كشف حركة الرصيد</span><i class="fas fa-chevron-left chevron"></i></a>
                 <div class="settings-item" style="cursor:default;"><i class="fas fa-circle-info"></i><span class="text">الرصيد يُعتمد يدوياً من المالك</span><span class="badge">آمن</span></div>
                 <a href="/referrals" class="settings-item"><i class="fas fa-user-plus"></i><span class="text">الإحالات والأرباح</span><i class="fas fa-chevron-left chevron"></i></a>
                 <a href="/notifications" class="settings-item"><i class="fas fa-bell"></i><span class="text">الإشعارات ({unread})</span><i class="fas fa-chevron-left chevron"></i></a>
@@ -716,6 +718,29 @@ def get_topup_page(db, user, message=""):
     </form>
     </div><div class="card"><h3 style="color:var(--accent);">طلبات الشحن السابقة</h3>{rows}</div>
     <div class="bottom-nav"><a href="/" class="nav-item"><i class="fas fa-home"></i>الرئيسية</a><a href="/order_history" class="nav-item"><i class="fas fa-history"></i>الطلبات</a><a href="/settings" class="nav-item"><i class="fas fa-cog"></i>الإعدادات</a></div>
+    </body></html>"""
+
+def get_balance_history_page(db, user):
+    events = []
+    for order in db.get("orders", []):
+        if order.get("user") == user:
+            events.append(("طلب خدمة", f"{order.get('svc', '')} · {order.get('status', '')}", -abs(float(order.get("cost", 0))), order.get("created_at", "")))
+    for topup in db.get("topups", []):
+        if topup.get("user") == user and topup.get("status") == "مقبول":
+            events.append(("إضافة رصيد يدوية", topup.get("method", ""), float(topup.get("amount", 0)), topup.get("created_at", "")))
+    for entry in db.get("balance_logs", []):
+        if entry.get("user") == user:
+            events.append(("تعديل إداري", entry.get("note", ""), float(entry.get("delta", 0)), entry.get("created_at", "")))
+    events.sort(key=lambda item: item[3], reverse=True)
+    rows = "".join(
+        f"""<div class="order-row"><div><b>{h(title)}</b><br><small>{h(detail)} · {h(created)}</small></div>
+        <strong style="color:{'#2ecc71' if amount >= 0 else '#ff6b7a'};">{'+' if amount >= 0 else ''}{money(amount)}</strong></div>"""
+        for title, detail, amount, created in events
+    ) or "<p style='opacity:.55;text-align:center;'>لا توجد حركات مالية بعد</p>"
+    return f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">{get_master_style()}</head><body>
+    <div class="header"><b style="color:var(--accent);font-size:22px;">كشف حركة الرصيد</b><a href="/" style="color:white;font-size:24px;"><i class="fas fa-home"></i></a></div>
+    <div class="card"><div class="inline-note"><i class="fas fa-chart-line"></i><span>سجل واضح لكل الطلبات والإضافات والتعديلات التي أثرت على رصيدك.</span></div>{rows}</div>
+    <div class="bottom-nav"><a href="/" class="nav-item"><i class="fas fa-home"></i>الرئيسية</a><a href="/topup" class="nav-item"><i class="fas fa-wallet"></i>إضافة رصيد</a><a href="/settings" class="nav-item"><i class="fas fa-cog"></i>الإعدادات</a></div>
     </body></html>"""
 
 def get_notifications_page(db, user):
@@ -1331,6 +1356,23 @@ def get_user_page(db, user):
             }});
         }}
 
+        function prefillRepeatOrder() {{
+            const params = new URLSearchParams(window.location.search);
+            const repeatSid = params.get('repeat_sid');
+            if (!repeatSid) return;
+            const repeatService = data.find(item => String(item.id) === String(repeatSid));
+            if (!repeatService) return;
+            const categoryIndex = categories.findIndex(item => item.name === repeatService.cat);
+            if (categoryIndex >= 0) selectCatIndex(categoryIndex);
+            document.getElementById('link').value = params.get('repeat_link') || '';
+            document.getElementById('qty').value = params.get('repeat_qty') || '';
+            setTimeout(() => {{
+                const option = Array.from(document.querySelectorAll('#svc-drop .option-item')).find(item => item.textContent.includes(repeatService.name));
+                if (option) option.click();
+                updateEstimate();
+            }}, 80);
+        }}
+
         function updateEstimate() {{
             const qty = Number(document.getElementById('qty').value || 0);
             const service = window.selectedService;
@@ -1385,6 +1427,7 @@ def get_user_page(db, user):
                 document.querySelectorAll('.dropdown-options').forEach(d => d.classList.remove('show'));
             }}
         }}
+        prefillRepeatOrder();
     </script>
 </body>
 </html>"""
@@ -1527,7 +1570,7 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                     remote_id, order_status = f"LOCAL-{secrets.token_hex(4).upper()}", "قيد التنفيذ"
                 db['users'][user]['balance'] -= cost
                 order = {
-                    "id": secrets.token_hex(6), "user": user, "svc": svc['name'],
+                    "id": secrets.token_hex(6), "user": user, "sid": str(svc.get("id", "")), "svc": svc['name'],
                     "qty": qty, "link": link, "cost": cost, "status": order_status,
                     "remote_id": remote_id, "created_at": now(), "discount": discount
                 }
@@ -1555,6 +1598,10 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
         # أدوات الحساب والصفحات الجديدة
         if p == "/topup":
             res(get_topup_page(db, user))
+            return
+
+        if p == "/balance_history":
+            res(get_balance_history_page(db, user))
             return
 
         if p == "/topup_action":
@@ -1595,6 +1642,24 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                 notify(db, user, "تم إلغاء الطلب", f"تمت إعادة {money(refund)} إلى رصيدك")
                 audit(db, user, "cancel_order", order_id)
                 save_db(db)
+            go("/order_history")
+            return
+
+        if p == "/repeat_order":
+            order_id = q.get("id", [""])[0]
+            order = next((o for o in db.get("orders", []) if o.get("id") == order_id and o.get("user") == user), None)
+            if order:
+                service = next((s for s in db.get("services", []) if str(s.get("id")) == str(order.get("sid"))), None)
+                if service is None:
+                    service = next((s for s in db.get("services", []) if s.get("name") == order.get("svc")), None)
+                if service:
+                    target = "/?repeat_sid={}&repeat_qty={}&repeat_link={}".format(
+                        urllib.parse.quote(str(service.get("id", ""))),
+                        urllib.parse.quote(str(order.get("qty", ""))),
+                        urllib.parse.quote(str(order.get("link", "")))
+                    )
+                    go(target)
+                    return
             go("/order_history")
             return
 

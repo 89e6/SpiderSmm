@@ -2,7 +2,7 @@
     "users": {
         "admin": {
             "pass": "a24d8b3fdcd24387f3f1903aa3c796a5a011cc8ef0e13855667d8d517112989d",
-            "balance": 0.0,
+            "balance": 0,
             "is_admin": true,
             "phone": "000"
         }
@@ -27,6 +27,22 @@
             "message": "تم تعديل رصيدك بمبلغ $1.00",
             "read": true,
             "created_at": "2026-08-19 00:35:54"
+        },
+        {
+            "id": "fadaf86c3256",
+            "user": "admin",
+            "title": "تحديث الرصيد",
+            "message": "تم تعديل رصيدك بمبلغ $1.00",
+            "read": true,
+            "created_at": "2026-08-19 09:58:56"
+        },
+        {
+            "id": "b53825a99ec0",
+            "user": "admin",
+            "title": "تحديث الرصيد",
+            "message": "تم تعديل رصيدك بمبلغ $1.00",
+            "read": true,
+            "created_at": "2026-08-19 10:00:56"
         }
     ],
     "audit_logs": [
@@ -155,6 +171,42 @@
             "action": "toggle_site",
             "detail": "True",
             "created_at": "2026-08-19 09:32:15"
+        },
+        {
+            "actor": "admin",
+            "action": "adjust_balance",
+            "detail": "تم تعديل رصيد admin بمقدار $1.00",
+            "created_at": "2026-08-19 09:58:56"
+        },
+        {
+            "actor": "admin",
+            "action": "add_service",
+            "detail": "Jrjt",
+            "created_at": "2026-08-19 09:59:38"
+        },
+        {
+            "actor": "admin",
+            "action": "toggle_site",
+            "detail": "False",
+            "created_at": "2026-08-19 09:59:42"
+        },
+        {
+            "actor": "admin",
+            "action": "toggle_site",
+            "detail": "True",
+            "created_at": "2026-08-19 09:59:47"
+        },
+        {
+            "actor": "admin",
+            "action": "adjust_balance",
+            "detail": "تم تعديل رصيد admin بمقدار $-1.00",
+            "created_at": "2026-08-19 10:00:56"
+        },
+        {
+            "actor": "admin",
+            "action": "delete_service",
+            "detail": "1",
+            "created_at": "2026-08-19 10:01:07"
         }
     ],
     "coupons": [
@@ -185,6 +237,24 @@
             "status": "مفتوحة",
             "created_at": "2026-08-18 21:19:44",
             "replies": []
+        }
+    ],
+    "balance_logs": [
+        {
+            "id": "02fddfd0b6",
+            "user": "admin",
+            "delta": 1.0,
+            "note": "شحن رصيد",
+            "actor": "admin",
+            "created_at": "2026-08-19 09:58:56"
+        },
+        {
+            "id": "0c20b00e11",
+            "user": "admin",
+            "delta": -1.0,
+            "note": "تعديل يدوي من المالك",
+            "actor": "admin",
+            "created_at": "2026-08-19 10:00:56"
         }
     ]
 }
