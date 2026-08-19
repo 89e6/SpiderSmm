@@ -519,7 +519,7 @@ def get_welcome_page(error=""):
                             <div class="field"><i class="fas fa-key"></i><input id="register-pass" type="password" name="np" placeholder="أنشئ كلمة مرور قوية" autocomplete="new-password" minlength="6" required oninput="passwordStrength(this.value)"><button type="button" class="password-toggle" aria-label="إظهار كلمة المرور" onclick="togglePassword('register-pass', this)"><i class="fas fa-eye"></i></button></div>
                             <div class="strength"><span id="strength-label">قوة كلمة المرور</span><div class="strength-bar"><i id="strength-fill"></i></div></div>
                             <div class="field"><i class="fas fa-phone"></i><input type="tel" name="ph" placeholder="رقم الهاتف للتواصل" autocomplete="tel" required></div>
-                            <div class="field"><i class="fas fa-user-group"></i><input type="text" name="ref" placeholder="كود الإحالة (اختياري)"></div>
+                            <div class="field"><i class="fas fa-user-group"></i><input id="register-ref" type="text" name="ref" placeholder="كود الإحالة (اختياري)"></div>
                             <button class="action" type="submit"><i class="fas fa-sparkles"></i> ابدأ رحلتك الآن</button>
                         </form>
                         <div class="switch">لديك حساب بالفعل؟ <button type="button" onclick="showAuth('login')">سجّل دخولك</button></div>
@@ -552,6 +552,11 @@ def get_welcome_page(error=""):
                 fill.style.width = widths[score]; fill.style.background = colors[score];
                 label.textContent = score < 2 ? 'كلمة مرور ضعيفة' : (score < 4 ? 'كلمة مرور جيدة' : 'كلمة مرور قوية');
             }}
+             (function prefillReferral() {{
+                 const code = new URLSearchParams(window.location.search).get('ref');
+                 const input = document.getElementById('register-ref');
+                 if (code && input) input.value = code;
+             }})();
             let clerkReady = null;
             function loadClerk() {{
                 if (!{json.dumps(bool(CLERK_PUBLISHABLE_KEY))}) return Promise.reject(new Error('clerk_not_configured'));
@@ -701,12 +706,13 @@ def get_topup_page(db, user, message=""):
     <div class="header"><b style="color:var(--accent);font-size:22px;">شحن الرصيد</b><a href="/" style="color:white;font-size:24px;"><i class="fas fa-home"></i></a></div>
     <div class="card"><h3 style="color:var(--accent);">رصيدك الحالي: {money(u.get('balance'))}</h3>
     {f'<div class="card" style="margin:0 0 15px;color:#2ecc71;">{h(message)}</div>' if message else ''}
+    <div class="inline-note"><i class="fas fa-user-shield"></i><span>هذه ليست بوابة دفع إلكترونية. أرسل طلباً يدوياً، وسيقوم المالك بمراجعته واعتماد الرصيد.</span></div>
     <form action="/topup_action" method="GET">
       <input type="hidden" name="type" value="request">
       <input type="number" step="0.01" min="1" name="amount" placeholder="المبلغ المطلوب" required>
-      <select name="method" required><option value="">اختر طريقة الدفع</option><option>تحويل بنكي</option><option>محفظة إلكترونية</option><option>بطاقة شحن</option></select>
-      <input name="reference" placeholder="رقم العملية أو ملاحظة الدفع" required>
-      <button class="btn-send">إرسال طلب الشحن</button>
+      <select name="method" required><option value="">اختر طريقة الإضافة اليدوية</option><option>تحويل يدوي</option><option>إيداع نقدي</option><option>اتفاق مباشر مع المالك</option></select>
+      <input name="reference" placeholder="تفاصيل الإضافة أو رقم المرجع" required>
+      <button class="btn-send">إرسال طلب إضافة الرصيد</button>
     </form>
     </div><div class="card"><h3 style="color:var(--accent);">طلبات الشحن السابقة</h3>{rows}</div>
     <div class="bottom-nav"><a href="/" class="nav-item"><i class="fas fa-home"></i>الرئيسية</a><a href="/order_history" class="nav-item"><i class="fas fa-history"></i>الطلبات</a><a href="/settings" class="nav-item"><i class="fas fa-cog"></i>الإعدادات</a></div>
@@ -731,22 +737,26 @@ def get_referrals_page(db, user):
     u = db["users"][user]
     referred = [name for name, account in db.get("users", {}).items() if account.get("referred_by") == user]
     earnings = float(u.get("referrals_earnings", 0))
+    referred_rows = "".join(
+        f"""<div class="order-row"><div><b>{h(name)}</b><br><small>انضم في {h(account.get('created_at', ''))}</small></div><span class="badge">عضو مُحال</span></div>"""
+        for name, account in db.get("users", {}).items() if account.get("referred_by") == user
+    ) or "<p style='opacity:.55;text-align:center;'>لم ينضم أي شخص باستخدام كودك بعد</p>"
     return f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">{get_master_style()}</head><body>
     <div class="header"><b style="color:var(--accent);font-size:22px;">برنامج الإحالة</b><a href="/" style="color:white;font-size:24px;"><i class="fas fa-home"></i></a></div>
     <div class="card" style="text-align:center;"><i class="fas fa-users" style="font-size:48px;color:var(--accent);"></i><h2>ادعُ أصدقاءك واربح</h2>
       <p style="opacity:.7;">تحصل على عمولة إحالة عند اعتماد نشاط الأعضاء من قبل المالك.</p>
        <div style="display:flex;gap:8px;align-items:stretch;"><div id="ref-code" style="flex:1;padding:15px;background:rgba(243,156,18,.12);border:1px dashed var(--accent);border-radius:16px;font-size:20px;font-weight:bold;">{h(u.get('referral_code'))}</div><button onclick="copyReferral()" style="width:54px;margin:0;border-radius:16px;background:var(--accent);color:#000;border:0;cursor:pointer;" title="نسخ الكود"><i class="fas fa-copy"></i></button></div>
        <p id="copy-state" style="height:18px;color:#2ecc71;font-size:12px;margin:8px 0 0;"></p>
-      <p>إجمالي أرباح الإحالات: <b style="color:#2ecc71;">{money(earnings)}</b></p><p>عدد الإحالات: <b>{len(referred)}</b></p>
+       <p>إجمالي أرباح الإحالات: <b style="color:#2ecc71;">{money(earnings)}</b></p><p>عدد الإحالات: <b>{len(referred)}</b> · العمولة الحالية: <b>{float(db.get('referral_percent', 5)):.0f}%</b></p>
        <button onclick="shareReferral()" class="btn-send" style="margin-top:4px;"><i class="fas fa-share-nodes"></i> مشاركة كود الإحالة</button>
-     </div><div class="bottom-nav"><a href="/" class="nav-item"><i class="fas fa-home"></i>الرئيسية</a><a href="/settings" class="nav-item"><i class="fas fa-cog"></i>الإعدادات</a></div>
+      </div><div class="card"><h3 style="color:var(--accent);">الأعضاء الذين دعوتهم</h3>{referred_rows}</div><div class="bottom-nav"><a href="/" class="nav-item"><i class="fas fa-home"></i>الرئيسية</a><a href="/settings" class="nav-item"><i class="fas fa-cog"></i>الإعدادات</a></div>
      <script>
      function copyReferral() {{
          navigator.clipboard.writeText(document.getElementById('ref-code').textContent.trim()).then(() => document.getElementById('copy-state').textContent = 'تم نسخ الكود بنجاح');
      }}
      function shareReferral() {{
-         const code = document.getElementById('ref-code').textContent.trim(), text = 'انضم إلى {SITE_NAME} باستخدام كود الإحالة: ' + code;
-         if (navigator.share) navigator.share({{title:'{SITE_NAME}', text:text}}); else {{ copyReferral(); document.getElementById('copy-state').textContent = 'تم نسخ نص المشاركة'; }}
+          const code = document.getElementById('ref-code').textContent.trim(), url = window.location.origin + '/?ref=' + encodeURIComponent(code), text = 'انضم إلى {SITE_NAME} باستخدام كود الإحالة: ' + code + '\\n' + url;
+          if (navigator.share) navigator.share({{title:'{SITE_NAME}', text:text, url:url}}); else {{ navigator.clipboard.writeText(text); document.getElementById('copy-state').textContent = 'تم نسخ رابط الدعوة'; }}
      }}
      </script>
     </body></html>"""
@@ -1089,15 +1099,22 @@ def get_user_page(db, user):
     level, discount = tier_for_user(db, user)
     unread = len([n for n in db.get("notifications", []) if n.get("user") == user and not n.get("read")])
     # نسخة العرض العامة لا تحتوي على api_url أو api_key.
+    category_image_map = {str(cat): str(image or "").strip() for cat, image in category_images.items()}
     public_svcs = [
         {"id": str(s.get("id", "")), "name": s.get("name", ""), "cat": s.get("cat", "عام"),
-         "image_url": s.get("image_url", ""), "price": s.get("price", 0)}
+         "image_url": s.get("image_url", "") or category_image_map.get(str(s.get("cat", "عام")), ""),
+         "price": s.get("price", 0)}
         for s in svcs
     ]
     category_data = []
     for cat in cats:
         first = next((s for s in svcs if s.get("cat", "عام") == cat and s.get("image_url")), None)
         category_data.append({"name": cat, "image_url": category_images.get(cat) or (first.get("image_url", "") if first else "")})
+    category_options = ""
+    for idx, category in enumerate(category_data):
+        image = str(category.get("image_url", "")).strip()
+        art = f'<img src="{h(image)}" alt="" onerror="this.style.display=\'none\'">' if image else '<i class="fas fa-layer-group"></i>'
+        category_options += f'<div class="option-item" data-index="{idx}" onclick="selectCatIndex({idx})">{art}<span>{h(category.get("name"))}</span></div>'
     category_cards = ""
     for idx, item in enumerate(category_data):
         image_url = str(item.get("image_url", "")).strip()
@@ -1223,10 +1240,6 @@ def get_user_page(db, user):
     </section>
 
     <section class="card">
-        <div class="section-head"><div><div class="eyebrow">كتالوج الخدمات</div><h2 style="margin:3px 0 0;">اختر أين تريد أن تنمو</h2></div><span class="pill">{len(svcs)} خدمة متاحة</span></div>
-        <div class="category-grid">{category_cards}</div>
-    </section>
-    <section class="card">
         <div class="section-head"><div><div class="eyebrow">طلب جديد</div><h2 style="margin:3px 0 0;">خدمة واضحة، بخطوة واحدة</h2></div><span class="pill"><i class="fas fa-shield-halved"></i> آمن</span></div>
         <div class="order-layout"><form id="orderForm">
             <!-- قائمة الأقسام المجمّلة -->
@@ -1237,7 +1250,7 @@ def get_user_page(db, user):
                     <i class="fas fa-chevron-down"></i>
                 </div>
                 <div class="dropdown-options" id="cat-drop">
-                    {" ".join([f'<div class="option-item" data-index="{idx}" onclick="selectCatIndex({idx})"><i class="fas fa-layer-group"></i><span>{h(c)}</span></div>' for idx, c in enumerate(cats)])}
+                    {category_options}
                 </div>
             </div>
 
@@ -1442,7 +1455,7 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                     "referrals_earnings": 0.0, "created_at": now()
                 }
                 if referral:
-                    owner = next((name for name, account in db["users"].items() if account.get("referral_code") == referral and name != nu), None)
+                    owner = next((name for name, account in db["users"].items() if str(account.get("referral_code", "")).upper() == referral.upper() and name != nu), None)
                     if owner:
                         db["users"][nu]["referred_by"] = owner
                         notify(db, owner, "إحالة جديدة", f"سجّل مستخدم جديد عن طريقك: {nu}")
@@ -1519,6 +1532,16 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                     "remote_id": remote_id, "created_at": now(), "discount": discount
                 }
                 db['orders'].append(order)
+                referrer = db["users"][user].get("referred_by", "")
+                referrer_account = db.get("users", {}).get(referrer)
+                referral_percent = float(db.get("referral_percent", 5) or 0)
+                if referrer_account is not None and referrer != user and referral_percent > 0:
+                    commission = round(cost * referral_percent / 100, 4)
+                    referrer_account["referrals_earnings"] = float(referrer_account.get("referrals_earnings", 0)) + commission
+                    referrer_account["balance"] = float(referrer_account.get("balance", 0)) + commission
+                    order["referral_commission"] = commission
+                    notify(db, referrer, "أرباح إحالة جديدة", f"حصلت على {money(commission)} من طلب {user}")
+                    audit(db, user, "referral_commission", f"{referrer} · {money(commission)}")
                 if coupon:
                     coupon["uses"] = int(coupon.get("uses", 0)) + 1
                 notify(db, user, "تم استلام طلبك", f"طلب {svc['name']} قيد التنفيذ الآن")
