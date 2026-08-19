@@ -1363,6 +1363,7 @@ def get_user_page(db, user):
     cats = sorted(list(set([s.get('cat', 'عام') for s in svcs])))
     category_images = db.get("category_images", {})
     discount = user_discount(db, user)
+    level = f"خصم {discount:g}%" if discount else "أساسي"
     unread = len([n for n in db.get("notifications", []) if n.get("user") == user and not n.get("read")])
     # نسخة العرض العامة لا تحتوي على api_url أو api_key.
     category_image_map = {str(cat): str(image or "").strip() for cat, image in category_images.items()}
