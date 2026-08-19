@@ -2,7 +2,7 @@
     "users": {
         "admin": {
             "pass": "a24d8b3fdcd24387f3f1903aa3c796a5a011cc8ef0e13855667d8d517112989d",
-            "balance": 0,
+            "balance": 1.0,
             "is_admin": true,
             "phone": "000"
         }
@@ -10,5 +10,86 @@
     "services": [],
     "orders": [],
     "announcement": "مرحباً بك في عالم الفخامة الرقمية!",
-    "is_active": true
+    "is_active": true,
+    "notifications": [
+        {
+            "id": "b8c966f39409",
+            "user": "admin",
+            "title": "تحديث الرصيد",
+            "message": "تم تعديل رصيدك بمبلغ $1.00",
+            "read": true,
+            "created_at": "2026-08-18 21:13:54"
+        }
+    ],
+    "audit_logs": [
+        {
+            "actor": "admin",
+            "action": "adjust_balance",
+            "detail": "تم تعديل رصيد admin",
+            "created_at": "2026-08-18 21:13:54"
+        },
+        {
+            "actor": "admin",
+            "action": "create_coupon",
+            "detail": "N",
+            "created_at": "2026-08-18 21:15:55"
+        },
+        {
+            "actor": "admin",
+            "action": "delete_coupon",
+            "detail": "N",
+            "created_at": "2026-08-18 21:16:04"
+        },
+        {
+            "actor": "admin",
+            "action": "open_ticket",
+            "detail": "فتح تذكرة 8BB382DB",
+            "created_at": "2026-08-18 21:16:43"
+        },
+        {
+            "actor": "admin",
+            "action": "close_ticket",
+            "detail": "8BB382DB",
+            "created_at": "2026-08-18 21:17:10"
+        },
+        {
+            "actor": "admin",
+            "action": "close_ticket",
+            "detail": "8BB382DB",
+            "created_at": "2026-08-18 21:17:15"
+        },
+        {
+            "actor": "admin",
+            "action": "sync_orders",
+            "detail": "تم تحديث 0 طلب",
+            "created_at": "2026-08-18 21:18:54"
+        },
+        {
+            "actor": "admin",
+            "action": "open_ticket",
+            "detail": "فتح تذكرة BDC327D5",
+            "created_at": "2026-08-18 21:19:44"
+        }
+    ],
+    "coupons": [],
+    "tickets": [
+        {
+            "id": "8BB382DB",
+            "user": "admin",
+            "subject": "عندي مشكلة ",
+            "message": "مشكلخ",
+            "status": "مغلقة",
+            "created_at": "2026-08-18 21:16:43",
+            "replies": []
+        },
+        {
+            "id": "BDC327D5",
+            "user": "admin",
+            "subject": "ة",
+            "message": "ا",
+            "status": "مفتوحة",
+            "created_at": "2026-08-18 21:19:44",
+            "replies": []
+        }
+    ]
 }
