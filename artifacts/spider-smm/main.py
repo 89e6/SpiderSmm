@@ -380,9 +380,9 @@ def get_master_style(db=None):
             background-size:100% 5px; z-index: -1; }}
         a {{ color: inherit; }}
         .header {{
-            min-height: 68px; background: rgba(9, 17, 30, .88); backdrop-filter: blur(18px);
+            min-height: 76px; background: rgba(9, 17, 30, .88); backdrop-filter: blur(18px);
             display:flex; align-items:center; justify-content:space-between; gap:18px;
-            padding: 11px clamp(16px, 4vw, 52px); border-bottom:1px solid var(--border);
+            padding: 14px clamp(16px, 4vw, 52px); border-bottom:1px solid var(--border);
             position:sticky; top:0; z-index:1000;
         }}
         .header a {{ text-decoration:none; }}
@@ -398,11 +398,11 @@ def get_master_style(db=None):
         .settings-group {{ width:min(760px, 100%); margin:24px auto; }}
         .settings-title {{ margin:0 4px 9px; }}
         .settings-list {{ background:rgba(8, 17, 30, .34); border-radius:18px; overflow:hidden; border:1px solid var(--border); }}
-        .settings-item {{ display:flex; align-items:center; gap:10px; min-height:58px; padding:12px 16px; text-decoration:none; color:var(--text); border-bottom:1px solid var(--border); }}
+        .settings-item {{ display:flex; align-items:center; gap:12px; min-height:64px; padding:15px 18px; text-decoration:none; color:var(--text); border-bottom:1px solid var(--border); }}
         .settings-item:last-child {{ border:0; }}
         .settings-item:hover {{ background:rgba(111, 209, 215, .07); }}
-        .settings-item > i:first-child {{ width:21px; color:var(--accent); text-align:center; font-size:15px; }}
-        .settings-item .text {{ flex:1; font-size:13px; font-weight:700; }}
+        .settings-item > i:first-child {{ width:24px; color:var(--accent); text-align:center; }}
+        .settings-item .text {{ flex:1; font-size:14px; font-weight:700; }}
         .settings-item .chevron {{ font-size:11px; color:var(--muted); }}
         input, select, textarea, button {{ font:inherit; }}
         input, select, textarea {{
@@ -413,27 +413,27 @@ def get_master_style(db=None):
         input::placeholder, textarea::placeholder {{ color:#71859d; }}
         input:focus, select:focus, textarea:focus {{ border-color:rgba(246, 200, 95, .7); box-shadow:0 0 0 3px rgba(246, 200, 95, .09); }}
         select option {{ background:var(--panel); color:var(--text); }}
-        button, .btn-send {{ min-height:42px; padding:9px 14px; border-radius:12px; cursor:pointer; }}
+        button, .btn-send {{ min-height:46px; padding:11px 17px; border-radius:13px; cursor:pointer; }}
         .btn-send {{ background:linear-gradient(120deg, var(--accent), var(--accent-strong)); color:#17202b; font-weight:900; border:0; box-shadow:0 8px 20px rgba(239,159,75,.18); }}
         .btn-send:hover {{ transform:translateY(-1px); filter:brightness(1.04); }}
         .btn-quiet {{ background:rgba(111, 209, 215, .08); color:var(--cyan); border:1px solid rgba(111,209,215,.25); text-decoration:none; }}
         .floating-tg {{
-            position:fixed; bottom:116px; left:22px; width:42px; height:42px; background:var(--cyan);
+            position:fixed; bottom:116px; left:22px; width:48px; height:48px; background:var(--cyan);
             border-radius:15px; display:flex; align-items:center; justify-content:center; color:#0d1726;
-            font-size:18px; z-index:3000; box-shadow:0 8px 25px rgba(111,209,215,.2); text-decoration:none;
+            font-size:21px; z-index:3000; box-shadow:0 8px 25px rgba(111,209,215,.2); text-decoration:none;
         }}
         .bottom-nav {{
             position:fixed; bottom:15px; left:50%; transform:translateX(-50%); width:min(620px, calc(100% - 24px));
-            min-height:60px; padding:6px; background:rgba(9,17,30,.92); backdrop-filter:blur(20px);
+            min-height:68px; padding:7px; background:rgba(9,17,30,.92); backdrop-filter:blur(20px);
             display:flex; justify-content:space-around; align-items:center; border-radius:20px;
             border:1px solid var(--border); z-index:2000; box-shadow:0 12px 30px rgba(0,0,0,.28);
         }}
-        .nav-item {{ color:var(--muted); text-decoration:none; font-size:9px; text-align:center; flex:1; padding:5px 3px; border-radius:11px; }}
+        .nav-item {{ color:var(--muted); text-decoration:none; font-size:10px; text-align:center; flex:1; padding:6px 3px; border-radius:13px; }}
         .nav-item.active, .nav-item:hover {{ color:var(--accent); background:rgba(246,200,95,.08); }}
-        .nav-item i {{ font-size:16px; display:block; margin-bottom:1px; }}
+        .nav-item i {{ font-size:18px; display:block; margin-bottom:2px; }}
         .stats-grid {{ width:min(1180px, calc(100% - 32px)); margin:18px auto; display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }}
         .stat-item {{ background:rgba(20, 34, 55, .82); border:1px solid var(--border); border-radius:18px; padding:17px 12px; text-align:center; }}
-        .stat-item i {{ color:var(--accent); display:block; margin-bottom:6px; font-size:16px; }}
+        .stat-item i {{ color:var(--accent); display:block; margin-bottom:7px; font-size:18px; }}
         .stat-label {{ font-size:11px; color:var(--muted); }}
         .stat-value {{ font-size:17px; font-weight:900; }}
         .badge, .pill {{ display:inline-flex; align-items:center; gap:5px; background:rgba(246,200,95,.14); color:var(--accent); padding:4px 10px; border-radius:99px; font-weight:900; font-size:11px; }}
@@ -504,9 +504,9 @@ def get_welcome_page(error="", db=None):
             .page {{ width:min(1200px, 100%); min-height:100vh; margin:auto; padding:32px;
                 display:grid; grid-template-columns:1.12fr .88fr; gap:70px; align-items:center; position:relative; }}
             .brand {{ display:flex; align-items:center; gap:12px; font-weight:900; letter-spacing:-.5px; }}
-             .brand-mark {{ width:43px; height:43px; border-radius:14px; display:grid; place-items:center;
+             .brand-mark {{ width:48px; height:48px; border-radius:16px; display:grid; place-items:center;
                 color:#111; background:linear-gradient(135deg,var(--gold),var(--orange));
-                 box-shadow:0 0 26px rgba(255,200,87,.3); font-size:22px; transform:rotate(-8deg); }}
+                 box-shadow:0 0 30px rgba(255,200,87,.3); font-size:25px; transform:rotate(-8deg); }}
             .brand span {{ font-size:21px; }} .brand small {{ display:block; color:var(--muted); font-size:10px; font-weight:500; letter-spacing:1px; }}
             .hero {{ padding:10px 0; }}
             .live-pill {{ display:inline-flex; align-items:center; gap:9px; color:var(--green); border:1px solid rgba(97,230,161,.22);
@@ -518,7 +518,7 @@ def get_welcome_page(error="", db=None):
             .hero-copy b {{ color:#e8eef8; }}
             .feature-grid {{ margin-top:34px; display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; max-width:600px; }}
             .feature {{ border:1px solid var(--line); background:rgba(255,255,255,.035); border-radius:20px; padding:17px 15px; }}
-             .feature i {{ color:var(--gold); font-size:16px; margin-bottom:9px; }}
+             .feature i {{ color:var(--gold); font-size:18px; margin-bottom:11px; }}
             .feature b {{ display:block; font-size:13px; }} .feature span {{ color:var(--muted); font-size:10px; }}
             .stats {{ display:flex; gap:28px; margin-top:34px; color:var(--muted); font-size:11px; }}
             .stats strong {{ display:block; color:#fff; font-size:21px; line-height:1.25; }}
@@ -534,11 +534,11 @@ def get_welcome_page(error="", db=None):
             .tab.active {{ color:#111; background:linear-gradient(135deg,var(--gold),var(--orange)); }}
             .form-panel[hidden] {{ display:none; }}
             .field {{ position:relative; margin-bottom:14px; }} .field > i {{ position:absolute; right:16px; top:17px; color:#6f819d; font-size:14px; }}
-             .field input {{ width:100%; height:49px; padding:0 42px 0 42px; color:#fff; background:rgba(0,0,0,.2);
+             .field input {{ width:100%; height:52px; padding:0 45px 0 45px; color:#fff; background:rgba(0,0,0,.2);
                 border:1px solid rgba(255,255,255,.1); border-radius:15px; outline:none; font-size:13px; }}
             .field input::placeholder {{ color:#64738b; }} .field input:focus {{ border-color:rgba(255,200,87,.75); box-shadow:0 0 0 4px rgba(255,200,87,.08); }}
             .password-toggle {{ position:absolute; left:10px; top:10px; border:0; background:transparent; color:#718199; cursor:pointer; width:32px; height:32px; }}
-             .action {{ width:100%; height:50px; border:0; border-radius:15px; cursor:pointer; color:#111; font-weight:900; font-size:14px;
+             .action {{ width:100%; height:54px; border:0; border-radius:16px; cursor:pointer; color:#111; font-weight:900; font-size:15px;
                 background:linear-gradient(110deg,var(--gold),var(--orange)); box-shadow:0 13px 30px rgba(255,138,61,.22); margin-top:4px; }}
             .action:hover {{ transform:translateY(-2px); box-shadow:0 16px 35px rgba(255,138,61,.32); }}
             .forgot {{ display:block; color:var(--gold); text-align:left; font-size:11px; text-decoration:none; margin:3px 2px 19px; }}
