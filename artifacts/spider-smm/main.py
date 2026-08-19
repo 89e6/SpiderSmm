@@ -173,6 +173,15 @@ def load_db():
         if "active" not in service:
             service["active"] = True
             changed = True
+        if "min_qty" not in service:
+            service["min_qty"] = 1
+            changed = True
+        if "max_qty" not in service:
+            service["max_qty"] = 1000000
+            changed = True
+        if "description" not in service:
+            service["description"] = ""
+            changed = True
     if not isinstance(data.get("category_images"), dict):
         data["category_images"] = {}
         changed = True
@@ -217,12 +226,48 @@ def sync_api_order(api_url, api_key, remote_id):
         mapping = {
             "completed": "مكتمل", "complete": "مكتمل",
             "in progress": "قيد التنفيذ", "processing": "قيد التنفيذ",
-            "pending": "معلّق", "canceled": "ملغى", "cancelled": "ملغى",
+            "pending": "معلّق", "waiting": "معلّق", "queued": "معلّق",
+            "canceled": "ملغى", "cancelled": "ملغى", "cancel": "ملغى",
             "partial": "مكتمل جزئياً"
         }
         return True, mapping.get(status, payload.get("status", "قيد التنفيذ"))
     except Exception as e:
         return False, str(e)
+
+def cancel_api_order(api_url, api_key, remote_id):
+    """يطلب إلغاء الطلب من المزود ويعيد نجاح العملية فقط عند تأكيد المزود."""
+    try:
+        params = urllib.parse.urlencode({"key": api_key, "action": "cancel", "orders": remote_id, "order": remote_id})
+        with urllib.request.urlopen(f"{api_url}?{params}", timeout=10) as response:
+            payload = json.loads(response.read().decode())
+        if isinstance(payload, list):
+            payload = payload[0] if payload else {}
+        text = str(payload.get("status", payload.get("message", ""))).lower()
+        success = bool(payload.get("success")) or text in ("success", "ok", "cancelled", "canceled")
+        if "error" in payload and payload.get("error"):
+            success = False
+        return success, payload.get("error") or payload.get("message") or text
+    except Exception as e:
+        return False, str(e)
+
+def sync_order(db, order, notify_user=True):
+    """يجلب آخر حالة من المزود ويحدّث السجل والإشعار عند تغيّرها."""
+    if not order.get("remote_id") or str(order.get("remote_id")).startswith("LOCAL-"):
+        return False, order.get("status", "قيد التنفيذ")
+    service = next((item for item in db.get("services", []) if str(item.get("id")) == str(order.get("sid"))), None)
+    if not service or not service.get("api_url") or not service.get("api_key"):
+        return False, order.get("status", "قيد التنفيذ")
+    success, status = sync_api_order(service["api_url"], service["api_key"], order["remote_id"])
+    if not success:
+        return False, order.get("status", "قيد التنفيذ")
+    status = str(status)
+    changed = status != order.get("status")
+    if changed:
+        order["status"] = status
+        order["status_updated_at"] = now()
+        if notify_user:
+            notify(db, order["user"], "تحديث حالة الطلب", f"طلبك {order.get('svc')} أصبح: {status}")
+    return changed, status
 
 def clerk_api_get(path):
     if not CLERK_SECRET_KEY:
@@ -531,8 +576,11 @@ def get_welcome_page(error=""):
                             <div class="field"><i class="fas fa-user-plus"></i><input type="text" name="nu" placeholder="اختر اسم مستخدم" autocomplete="username" pattern="[A-Za-z0-9_-]+" required></div>
                             <div class="field"><i class="fas fa-key"></i><input id="register-pass" type="password" name="np" placeholder="أنشئ كلمة مرور قوية" autocomplete="new-password" minlength="6" required oninput="passwordStrength(this.value)"><button type="button" class="password-toggle" aria-label="إظهار كلمة المرور" onclick="togglePassword('register-pass', this)"><i class="fas fa-eye"></i></button></div>
                             <div class="strength"><span id="strength-label">قوة كلمة المرور</span><div class="strength-bar"><i id="strength-fill"></i></div></div>
+                            <div class="field"><i class="fas fa-envelope"></i><input type="email" name="em" placeholder="البريد الإلكتروني" autocomplete="email" required></div>
                             <div class="field"><i class="fas fa-phone"></i><input type="tel" name="ph" placeholder="رقم الهاتف للتواصل" autocomplete="tel" required></div>
+                            <div class="field"><i class="fas fa-key"></i><input id="register-confirm" type="password" name="cp" placeholder="تأكيد كلمة المرور" autocomplete="new-password" minlength="6" required></div>
                             <div class="field"><i class="fas fa-user-group"></i><input id="register-ref" type="text" name="ref" placeholder="كود الإحالة (اختياري)"></div>
+                            <label style="display:flex;gap:8px;align-items:flex-start;color:#91a0b8;font-size:10px;margin:12px 0;"><input type="checkbox" name="terms" required style="width:auto;margin:3px 0 0;"> أوافق على شروط الاستخدام وأتعهد باستخدام الخدمات بشكل قانوني.</label>
                             <button class="action" type="submit"><i class="fas fa-sparkles"></i> ابدأ رحلتك الآن</button>
                         </form>
                         <div class="switch">لديك حساب بالفعل؟ <button type="button" onclick="showAuth('login')">سجّل دخولك</button></div>
@@ -629,14 +677,20 @@ def get_forgot_password_page(message=""):
     </body></html>"""
 
 
-def get_orders_page(db, user):
+def get_orders_page(db, user, message=""):
     orders = [o for o in db.get("orders", []) if o.get('user') == user]
+    changed = False
+    for order in orders:
+        did_change, _ = sync_order(db, order)
+        changed = changed or did_change
+    if changed:
+        save_db(db)
     orders_html = ""
     for o in reversed(orders):
         status = str(o.get('status', ''))
         status_color = "#2ecc71" if "مكتمل" in status else ("#ff6b7a" if "ملغى" in status else "#f39c12")
         cancel_action = ""
-        if status in ("قيد التنفيذ", "معلّق") and str(o.get("remote_id", "")).startswith("LOCAL-"):
+        if status in ("قيد التنفيذ", "معلّق"):
             cancel_action = f"""<a class="pill" style="margin-top:7px;color:#ff6b7a;border-color:rgba(255,107,122,.3);" href="/cancel_order?id={h(o.get('id'))}" onclick="return confirm('هل تريد إلغاء هذا الطلب واسترداد تكلفته؟')">إلغاء واسترداد</a>"""
         repeat_action = f"""<a class="pill" style="margin-top:7px;color:var(--cyan);border-color:rgba(111,209,215,.3);" href="/repeat_order?id={h(o.get('id'))}"><i class="fas fa-rotate-right"></i> إعادة الطلب</a>"""
         orders_html += f"""
@@ -652,7 +706,7 @@ def get_orders_page(db, user):
         orders_html = "<p style='text-align:center; opacity:0.5; margin-top:50px;'>ليس لديك طلبات سابقة</p>"
     return f"""<!DOCTYPE html><html lang="ar"><head><meta charset="UTF-8">{get_master_style()}</head><body>
         <div class="header"><div style="font-weight:900; color:var(--accent); font-size:22px;">سجل طلباتي</div><a href="/" style="color:white; font-size:24px;"><i class="fas fa-home"></i></a></div>
-        <div class="card">
+        <div class="card">{f'<div class="notice" style="margin-bottom:14px;"><i class="fas fa-circle-info"></i> {h(message)}</div>' if message else ''}
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
                 <input id="order-search" type="search" placeholder="ابحث باسم الخدمة..." oninput="filterOrders()" style="flex:1;min-width:190px;margin:0;">
                 <select id="order-status" onchange="filterOrders()" style="width:auto;min-width:135px;margin:0;"><option value="">كل الحالات</option><option>مكتمل</option><option>قيد التنفيذ</option><option>معلّق</option><option>ملغى</option></select>
@@ -908,6 +962,9 @@ def get_order_detail_page(db, user, order_id):
     order = next((o for o in db.get("orders", []) if o.get("id") == order_id and o.get("user") == user), None)
     if not order:
         return get_orders_page(db, user)
+    did_change, _ = sync_order(db, order)
+    if did_change:
+        save_db(db)
     status = str(order.get("status", ""))
     color = "#6dd6a0" if "مكتمل" in status else ("#ed7d86" if "ملغى" in status else "#f6c85f")
     progress = 100 if "مكتمل" in status else (0 if "معلّق" in status else 55)
@@ -959,7 +1016,7 @@ def get_admin_service_edit_page(db, service_id):
     service = next((s for s in db.get("services", []) if str(s.get("id")) == str(service_id)), None)
     if not service:
         return admin_layout("الخدمة غير موجودة", "<div class='card'>تعذر العثور على الخدمة.</div>")
-    return admin_layout("تعديل الخدمة", f"""<div class="card"><h3>{h(service.get('name'))}</h3><form action="/admin_action" method="GET"><input type="hidden" name="type" value="edit_service"><input type="hidden" name="id" value="{h(service_id)}"><input name="name" value="{h(service.get('name'))}" placeholder="اسم الخدمة" required><input name="cat" value="{h(service.get('cat'))}" placeholder="الفئة" required><input name="price" type="number" step="0.01" min="0" value="{h(service.get('price'))}" placeholder="السعر لكل 1000" required><input name="remote_id" value="{h(service.get('remote_id'))}" placeholder="معرف المزود" required><select name="active"><option value="1" {'selected' if service.get('active', True) else ''}>الخدمة مفعلة</option><option value="0" {'selected' if not service.get('active', True) else ''}>الخدمة متوقفة</option></select><button class="btn-send">حفظ التعديلات</button></form></div>""")
+    return admin_layout("تعديل الخدمة", f"""<div class="card"><h3>{h(service.get('name'))}</h3><form action="/admin_action" method="GET"><input type="hidden" name="type" value="edit_service"><input type="hidden" name="id" value="{h(service_id)}"><input name="name" value="{h(service.get('name'))}" placeholder="اسم الخدمة" required><input name="cat" value="{h(service.get('cat'))}" placeholder="الفئة" required><textarea name="description" placeholder="وصف الخدمة">{h(service.get('description', ''))}</textarea><input name="price" type="number" step="0.01" min="0" value="{h(service.get('price'))}" placeholder="السعر لكل 1000" required><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><input name="min_qty" type="number" min="1" value="{h(service.get('min_qty', 1))}" placeholder="أقل كمية" required><input name="max_qty" type="number" min="1" value="{h(service.get('max_qty', 1000000))}" placeholder="أعلى كمية" required></div><input name="remote_id" value="{h(service.get('remote_id'))}" placeholder="معرف المزود" required><select name="active"><option value="1" {'selected' if service.get('active', True) else ''}>الخدمة مفعلة</option><option value="0" {'selected' if not service.get('active', True) else ''}>الخدمة متوقفة</option></select><button class="btn-send">حفظ التعديلات</button></form></div>""")
 
 def get_admin_page(db):
     users, orders, services = db.get("users", {}), db.get("orders", []), db.get("services", [])
@@ -1123,7 +1180,7 @@ def get_admin_page_v2(db):
         thumb = f'<img src="{h(image_url)}" alt="" onerror="this.style.display=\'none\'">' if image_url else '<i class="fas fa-layer-group"></i>'
         service_rows += f"""<article class="service-row">
             <div class="service-thumb">{thumb}</div>
-            <div class="service-info"><b>{h(s.get("name"))}</b><span>{h(s.get("cat", "عام"))} · {money(s.get("price"))} لكل 1000</span></div>
+            <div class="service-info"><b>{h(s.get("name"))}</b><span>{h(s.get("cat", "عام"))} · {money(s.get("price"))} لكل 1000</span><small>{h(s.get("description", "")) or "بدون وصف"} · الكمية: {h(s.get("min_qty", 1))} - {h(s.get("max_qty", 1000000))}</small></div>
             <div class="service-actions">
               <form action="/admin_action" method="GET" class="image-form">
                 <input type="hidden" name="type" value="update_svc_image"><input type="hidden" name="id" value="{h(s.get("id"))}">
@@ -1186,7 +1243,9 @@ def get_admin_page_v2(db):
             <section class="card admin-card"><div class="section-head"><div><h2>إضافة خدمة</h2><p class="lead">أدخل بيانات المزود داخلياً، واختر صورة تظهر للعملاء.</p></div><i class="fas fa-plus-circle" style="color:var(--accent);font-size:21px;"></i></div>
               <form action="/admin_action" method="GET"><input type="hidden" name="type" value="add_full_svc"><div class="form-grid">
                 <input name="n" placeholder="اسم الخدمة" required><input name="c" placeholder="الفئة / التطبيق" required>
-                <input type="number" step="0.01" name="p" placeholder="السعر لكل 1000" required><input name="sid" placeholder="معرّف الخدمة عند المزود" required>
+                 <input type="number" step="0.01" name="p" placeholder="السعر لكل 1000" required><input name="sid" placeholder="معرّف الخدمة عند المزود" required>
+                 <textarea class="full" name="description" placeholder="وصف الخدمة وما يميزها"></textarea>
+                 <input type="number" min="1" name="min_qty" placeholder="أقل كمية مسموحة" required><input type="number" min="1" name="max_qty" placeholder="أعلى كمية مسموحة" required>
                  <div class="full"><div style="display:flex;gap:7px;align-items:center;"><input id="new-image" type="url" name="img" placeholder="رابط صورة أو أيقونة التطبيق"><button type="button" class="gallery-trigger" onclick="openGallery('new-image')"><i class="fas fa-images"></i> فتح المعرض</button></div><span class="field-note">اختر صورة جاهزة من المعرض أو ألصق رابطاً مخصصاً، وستظهر في الفئة والخدمة.</span><select id="image-presets" onchange="document.getElementById('new-image').value=this.value"><option value="">اختيار صورة/أيقونة جاهزة</option>{preset_options}{existing_options}</select></div>
                 <input name="url" placeholder="رابط API المزود" required><input name="key" type="password" placeholder="مفتاح API المزود" required>
               </div><button class="btn-send" type="submit" style="width:100%;margin-top:17px;"><i class="fas fa-save"></i> حفظ ونشر الخدمة</button></form>
@@ -1232,6 +1291,12 @@ def get_user_page(db, user):
     u = db["users"][user]
     svcs = [service for service in db.get("services", []) if service.get("active", True)]
     user_orders = [o for o in db.get("orders", []) if o.get('user') == user]
+    changed = False
+    for order in user_orders:
+        did_change, _ = sync_order(db, order)
+        changed = changed or did_change
+    if changed:
+        save_db(db)
     cats = sorted(list(set([s.get('cat', 'عام') for s in svcs])))
     category_images = db.get("category_images", {})
     level, discount = tier_for_user(db, user)
@@ -1239,9 +1304,11 @@ def get_user_page(db, user):
     # نسخة العرض العامة لا تحتوي على api_url أو api_key.
     category_image_map = {str(cat): str(image or "").strip() for cat, image in category_images.items()}
     public_svcs = [
-        {"id": str(s.get("id", "")), "name": s.get("name", ""), "cat": s.get("cat", "عام"),
+         {"id": str(s.get("id", "")), "name": s.get("name", ""), "cat": s.get("cat", "عام"),
          "image_url": s.get("image_url", "") or category_image_map.get(str(s.get("cat", "عام")), ""),
-         "price": s.get("price", 0)}
+          "price": s.get("price", 0), "min_qty": int(s.get("min_qty", 1) or 1),
+          "max_qty": int(s.get("max_qty", 1000000) or 1000000),
+          "description": s.get("description", "")}
         for s in svcs
     ]
     category_data = []
@@ -1406,6 +1473,7 @@ def get_user_page(db, user):
             </div>
 
             <input type="hidden" id="s_sel" name="sid">
+            <div id="service-description" class="inline-note" style="margin:10px 0 4px;"><i class="fas fa-circle-info"></i> اختر خدمة حتى يظهر وصفها وحدود الكمية.</div>
 
             <span class="field-label">رابط الحساب أو المنشور</span>
             <input type="url" id="link" placeholder="https://..." required>
@@ -1457,11 +1525,16 @@ def get_user_page(db, user):
             data.filter(i => i.cat === c && (!query || i.name.toLowerCase().includes(query))).forEach(i => {{
                 let div = document.createElement('div');
                 div.className = 'option-item';
-                div.innerHTML = i.image_url ? `<img src="${{i.image_url}}" alt="" onerror="this.style.display='none'"><span>${{i.name}} <small>· ${{Number(i.price).toFixed(2)}} لكل 1000</small></span>` : `<i class="fas fa-chart-simple"></i><span>${{i.name}} <small>· ${{Number(i.price).toFixed(2)}} لكل 1000</small></span>`;
+                const limits = `· من ${{i.min_qty.toLocaleString()}} إلى ${{i.max_qty.toLocaleString()}}`;
+                div.innerHTML = i.image_url ? `<img src="${{i.image_url}}" alt="" onerror="this.style.display='none'"><span>${{i.name}} <small>· ${{Number(i.price).toFixed(2)}} لكل 1000<br>${{limits}}</small></span>` : `<i class="fas fa-chart-simple"></i><span>${{i.name}} <small>· ${{Number(i.price).toFixed(2)}} لكل 1000<br>${{limits}}</small></span>`;
                 div.onclick = function() {{
                     document.getElementById('s_sel').value = i.id;
                     sText.innerText = i.name;
                     window.selectedService = i;
+                    document.getElementById('qty').min = i.min_qty;
+                    document.getElementById('qty').max = i.max_qty;
+                    document.getElementById('qty').placeholder = `${{i.min_qty}} - ${{i.max_qty}}`;
+                    document.getElementById('service-description').innerHTML = i.description ? `<i class="fas fa-circle-info"></i> ${{i.description}}` : `<i class="fas fa-circle-info"></i> الحد المسموح: ${{i.min_qty.toLocaleString()}} - ${{i.max_qty.toLocaleString()}}`;
                     updateEstimate();
                     toggleDrop('svc-drop');
                 }};
@@ -1491,6 +1564,9 @@ def get_user_page(db, user):
             const service = window.selectedService;
             const value = service && qty > 0 ? (Number(service.price || 0) / 1000 * qty * (1 - {discount} / 100)) : 0;
             document.getElementById('estimate-value').textContent = '$' + value.toFixed(2);
+            if (service && qty > 0 && (qty < service.min_qty || qty > service.max_qty)) {{
+                document.getElementById('estimate-value').textContent = `الكمية من ${{service.min_qty}} إلى ${{service.max_qty}}`;
+            }}
         }}
 
         async function submitOrder() {{
@@ -1501,7 +1577,12 @@ def get_user_page(db, user):
             const link = document.getElementById('link').value;
             const coupon = document.getElementById('coupon').value;
 
-            if(!sid || !qty || !link) {{ alert('اختر الخدمة وأكمل الرابط والكمية أولاً.'); return; }}
+             if(!sid || !qty || !link) {{ alert('اختر الخدمة وأكمل الرابط والكمية أولاً.'); return; }}
+             const selected = window.selectedService;
+             if (selected && (Number(qty) < selected.min_qty || Number(qty) > selected.max_qty)) {{
+                 alert(`الكمية يجب أن تكون بين ${{selected.min_qty}} و ${{selected.max_qty}}`);
+                 return;
+             }}
 
             modal.style.display = 'flex';
             modalBody.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size:45px; color:var(--accent);"></i>';
@@ -1602,11 +1683,15 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
         if p == "/register":
             nu, np = q.get('nu',[''])[0].strip(), q.get('np',[''])[0]
             phone = q.get('ph', [''])[0].strip()
+            email = q.get('em', [''])[0].strip().lower()
+            confirm_password = q.get('cp', [''])[0]
             referral = q.get('ref', [''])[0].strip()
-            if nu and len(np) >= 6 and nu not in db['users'] and all(c.isalnum() or c in "_-" for c in nu):
+            if not db.get("site_settings", {}).get("allow_registration", True):
+                res(get_welcome_page("التسجيل مغلق مؤقتاً من إدارة المنصة"))
+            elif nu and len(np) >= 6 and np == confirm_password and email and "@" in email and "terms" in q and nu not in db['users'] and all(c.isalnum() or c in "_-" for c in nu):
                 db['users'][nu] = {
                     "pass": hash_pass(np), "balance": 0.0, "is_admin": False,
-                    "phone": phone, "email": "", "lang": "ar",
+                    "phone": phone, "email": email, "lang": "ar",
                     "referral_code": make_referral_code(nu), "referred_by": "",
                     "referrals_earnings": 0.0, "created_at": now()
                 }
@@ -1663,6 +1748,11 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                 if not svc or qty <= 0 or not link.startswith(("http://", "https://")):
                     json_res({"status": "error", "message": "بيانات الطلب أو الرابط غير صحيح"})
                     return
+                min_qty = max(1, int(svc.get("min_qty", 1) or 1))
+                max_qty = max(min_qty, int(svc.get("max_qty", 1000000) or 1000000))
+                if qty < min_qty or qty > max_qty:
+                    json_res({"status": "error", "message": f"كمية الخدمة يجب أن تكون بين {min_qty} و {max_qty}"})
+                    return
                 base_cost = (float(svc.get('price', 0)) / 1000) * qty
                 level, tier_discount = tier_for_user(db, user)
                 discount = tier_discount
@@ -1685,7 +1775,7 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                 order = {
                     "id": secrets.token_hex(6), "user": user, "sid": str(svc.get("id", "")), "svc": svc['name'],
                     "qty": qty, "link": link, "cost": cost, "status": order_status,
-                    "remote_id": remote_id, "created_at": now(), "discount": discount
+                     "remote_id": remote_id, "created_at": now(), "status_updated_at": now(), "discount": discount
                 }
                 db['orders'].append(order)
                 referrer = db["users"][user].get("referred_by", "")
@@ -1748,13 +1838,25 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
         if p == "/cancel_order":
             order_id = q.get("id", [""])[0]
             order = next((o for o in db.get("orders", []) if o.get("id") == order_id and o.get("user") == user), None)
-            if order and order.get("status") in ("قيد التنفيذ", "معلّق") and str(order.get("remote_id", "")).startswith("LOCAL-"):
-                order["status"] = "ملغى"
-                refund = float(order.get("cost", 0))
-                db["users"][user]["balance"] = float(db["users"][user].get("balance", 0)) + refund
-                notify(db, user, "تم إلغاء الطلب", f"تمت إعادة {money(refund)} إلى رصيدك")
-                audit(db, user, "cancel_order", order_id)
-                save_db(db)
+            if not order or order.get("status") not in ("قيد التنفيذ", "معلّق"):
+                go("/order_history")
+                return
+            service = next((item for item in db.get("services", []) if str(item.get("id")) == str(order.get("sid"))), None)
+            remote_id = str(order.get("remote_id", ""))
+            if service and service.get("api_url") and service.get("api_key") and remote_id and not remote_id.startswith("LOCAL-"):
+                success, detail = cancel_api_order(service["api_url"], service["api_key"], remote_id)
+                if not success:
+                    notify(db, user, "تعذر إلغاء الطلب", f"لم يؤكد المزود الإلغاء: {detail}")
+                    save_db(db)
+                    res(get_orders_page(db, user, "المزود لم يؤكد الإلغاء. لم يتم خصم أو إعادة أي مبلغ."))
+                    return
+            order["status"] = "ملغى"
+            order["status_updated_at"] = now()
+            refund = float(order.get("cost", 0))
+            db["users"][user]["balance"] = float(db["users"][user].get("balance", 0)) + refund
+            notify(db, user, "تم إلغاء الطلب", f"تمت إعادة {money(refund)} إلى رصيدك")
+            audit(db, user, "cancel_order", order_id)
+            save_db(db)
             go("/order_history")
             return
 
@@ -1979,6 +2081,9 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                     "cat": q.get('c', [''])[0], 
                     "image_url": q.get('img', [''])[0].strip() or (preset_for_service({"cat": q.get('c', [''])[0]}) or {}).get("image_url", ""),
                     "price": float(q.get('p', ['0'])[0]), 
+                     "description": q.get('description', [''])[0].strip()[:500],
+                     "min_qty": max(1, int(q.get('min_qty', ['1'])[0] or 1)),
+                     "max_qty": max(1, int(q.get('max_qty', ['1000000'])[0] or 1000000)),
                     "remote_id": q.get('sid', [''])[0],
                     "api_url": q.get('url', [''])[0], 
                     "api_key": q.get('key', [''])[0]
@@ -2024,6 +2129,12 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                         pass
                     service["name"] = q.get("name", [service.get("name", "")])[0].strip()[:120]
                     service["cat"] = q.get("cat", [service.get("cat", "عام")])[0].strip()[:80]
+                    service["description"] = q.get("description", [service.get("description", "")])[0].strip()[:500]
+                    try:
+                        service["min_qty"] = max(1, int(q.get("min_qty", [service.get("min_qty", 1)])[0]))
+                        service["max_qty"] = max(service["min_qty"], int(q.get("max_qty", [service.get("max_qty", 1000000)])[0]))
+                    except ValueError:
+                        pass
                     service["remote_id"] = q.get("remote_id", [service.get("remote_id", "")])[0].strip()
                     service["active"] = q.get("active", ["1"])[0] == "1"
                     audit(db, user, "edit_service", service_id)
@@ -2156,16 +2267,11 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
             elif t == "sync_orders":
                 changed_orders = 0
                 for order in db.get("orders", []):
-                    if order.get("status") not in ("قيد التنفيذ", "معلّق") or not order.get("remote_id"):
+                    if not order.get("remote_id") or str(order.get("remote_id", "")).startswith("LOCAL-"):
                         continue
-                    service = next((item for item in db.get("services", []) if item.get("name") == order.get("svc")), None)
-                    if not service or not service.get("api_url") or not service.get("api_key") or str(order.get("remote_id", "")).startswith("LOCAL-"):
-                        continue
-                    success, status = sync_api_order(service["api_url"], service["api_key"], order["remote_id"])
-                    if success and status != order.get("status"):
-                        order["status"] = status
+                    did_change, status = sync_order(db, order)
+                    if did_change:
                         changed_orders += 1
-                        notify(db, order["user"], "تحديث حالة الطلب", f"طلبك {order.get('svc')} أصبح: {status}")
                 audit(db, user, "sync_orders", f"تم تحديث {changed_orders} طلب")
                 save_db(db)
                 res(f"""<!doctype html><html lang="ar" dir="rtl"><body style="background:#0f172a;color:white;font-family:Arial;text-align:center;padding:80px;"><h2>تم تحديث الطلبات</h2><p>تم تعديل حالة {changed_orders} طلب.</p><a href="/admin_panel" style="color:#f39c12;">العودة للوحة الإدارة</a></body></html>""")
