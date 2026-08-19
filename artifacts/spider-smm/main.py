@@ -617,6 +617,9 @@ def get_orders_page(db, user):
     for o in reversed(orders):
         status = str(o.get('status', ''))
         status_color = "#2ecc71" if "مكتمل" in status else ("#ff6b7a" if "ملغى" in status else "#f39c12")
+        cancel_action = ""
+        if status in ("قيد التنفيذ", "معلّق") and str(o.get("remote_id", "")).startswith("LOCAL-"):
+            cancel_action = f"""<a class="pill" style="margin-top:7px;color:#ff6b7a;border-color:rgba(255,107,122,.3);" href="/cancel_order?id={h(o.get('id'))}" onclick="return confirm('هل تريد إلغاء هذا الطلب واسترداد تكلفته؟')">إلغاء واسترداد</a>"""
         orders_html += f"""
         <div class="order-row order-card" data-service="{h(o.get('svc'))}" data-status="{h(status)}">
             <div>
@@ -624,7 +627,7 @@ def get_orders_page(db, user):
                 <div style="font-size:12px; opacity:0.6;">الكمية: {h(o.get('qty'))} | التكلفة: {money(o.get('cost'))}</div>
                 <div style="font-size:11px; opacity:0.45;">{h(o.get('created_at', ''))}</div>
             </div>
-            <div style="color:{status_color}; font-weight:bold; font-size:14px;">{h(status)}</div>
+            <div style="color:{status_color}; font-weight:bold; font-size:14px;text-align:left;">{h(status)}<br>{cancel_action}</div>
         </div>"""
     if not orders_html:
         orders_html = "<p style='text-align:center; opacity:0.5; margin-top:50px;'>ليس لديك طلبات سابقة</p>"
@@ -669,7 +672,8 @@ def get_settings_page(db, user):
             <div class="settings-title">الحساب والمالية</div>
             <div class="settings-list">
                 <a href="/order_history" class="settings-item"><i class="fas fa-history"></i><span class="text">سجل طلباتي</span><i class="fas fa-chevron-left chevron"></i></a>
-                <div class="settings-item" style="cursor:default;"><i class="fas fa-wallet"></i><span class="text">الرصيد يُدار يدوياً من المالك</span><span class="badge">يدوي</span></div>
+                <a href="/topup" class="settings-item"><i class="fas fa-wallet"></i><span class="text">شحن الرصيد</span><span class="badge">طلب جديد</span><i class="fas fa-chevron-left chevron"></i></a>
+                <div class="settings-item" style="cursor:default;"><i class="fas fa-circle-info"></i><span class="text">الرصيد يُعتمد يدوياً من المالك</span><span class="badge">آمن</span></div>
                 <a href="/referrals" class="settings-item"><i class="fas fa-user-plus"></i><span class="text">الإحالات والأرباح</span><i class="fas fa-chevron-left chevron"></i></a>
                 <a href="/notifications" class="settings-item"><i class="fas fa-bell"></i><span class="text">الإشعارات ({unread})</span><i class="fas fa-chevron-left chevron"></i></a>
                 <a href="/change_password" class="settings-item"><i class="fas fa-lock"></i><span class="text">تغيير كلمة المرور</span><i class="fas fa-chevron-left chevron"></i></a>
@@ -830,7 +834,6 @@ def get_admin_page(db):
     is_active = db.get("is_active", True)
     status_text = "الموقع متصل" if is_active else "وضع الصيانة"
     btn_color = "#2ecc71" if not is_active else "#e74c3c"
-    pending_topups = len([t for t in db.get("topups", []) if t.get("status") == "قيد المراجعة"])
     open_tickets = len([t for t in db.get("tickets", []) if t.get("status") != "مغلقة"])
 
     return f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -937,6 +940,7 @@ def get_admin_page_v2(db):
     total_profit = sum(float(o.get("cost", 0)) for o in orders)
     total_balances = sum(float(account.get("balance", 0)) for account in users.values())
     open_tickets = len([t for t in db.get("tickets", []) if t.get("status") != "مغلقة"])
+    pending_topups = len([t for t in db.get("topups", []) if t.get("status") == "قيد المراجعة"])
     active = db.get("is_active", True)
     status_label = "الموقع يعمل" if active else "وضع الصيانة"
     status_class = "online" if active else "offline"
@@ -1050,8 +1054,11 @@ def get_admin_page_v2(db):
                <input id="userInput" type="search" placeholder="ابحث باسم المستخدم" oninput="searchUsers()"><div id="userList" style="max-height:390px;overflow:auto;">{user_rows or '<div class="empty-state">لا توجد حسابات.</div>'}</div>
             </section>
              <section class="card admin-card"><div class="section-head"><div><h2>آخر تعديلات الرصيد</h2><p class="lead">سجل سريع لكل إضافة أو خصم يدوي.</p></div><i class="fas fa-clock-rotate-left" style="color:var(--cyan);font-size:21px;"></i></div><div class="balance-logs">{recent_balance_logs}</div></section>
-            <section class="card admin-card"><div class="section-head"><div><h2>اختصارات الإدارة</h2><p class="lead">الأعمال المتكررة في مكان واحد.</p></div></div><div class="quick-actions">
-               <a href="/admin_reports">التقارير</a><a href="/admin_coupons">الكوبونات</a><a href="/admin_tickets">التذاكر ({open_tickets})</a><a href="/admin_action?type=sync_orders">تحديث الطلبات</a><a href="/admin_backup">نسخة احتياطية</a><a href="/admin_action?type=toggle_site">{'إيقاف الموقع' if active else 'تشغيل الموقع'}</a><a href="/settings">العودة للموقع</a>
+             <section class="card admin-card"><div class="section-head"><div><h2>إعلان للواجهة</h2><p class="lead">أرسل تنبيهاً يظهر لكل العملاء في الصفحة الرئيسية.</p></div><i class="fas fa-bullhorn" style="color:var(--accent);font-size:21px;"></i></div>
+               <form action="/admin_action" method="GET"><input type="hidden" name="type" value="announcement"><textarea name="message" maxlength="240" placeholder="مثال: خصم خاص على خدمات Instagram اليوم" required style="width:100%;min-height:76px;"></textarea><button class="btn-send" type="submit" style="width:100%;margin-top:10px;">نشر الإعلان</button></form>
+             </section>
+             <section class="card admin-card"><div class="section-head"><div><h2>اختصارات الإدارة</h2><p class="lead">الأعمال المتكررة في مكان واحد.</p></div></div><div class="quick-actions">
+                <a href="/admin_reports">التقارير</a><a href="/admin_topups">طلبات الشحن ({pending_topups})</a><a href="/admin_coupons">الكوبونات</a><a href="/admin_tickets">التذاكر ({open_tickets})</a><a href="/admin_action?type=sync_orders">تحديث الطلبات</a><a href="/admin_backup">نسخة احتياطية</a><a href="/admin_action?type=toggle_site">{'إيقاف الموقع' if active else 'تشغيل الموقع'}</a><a href="/settings">العودة للموقع</a>
             </div></section>
           </div>
         </div>
@@ -1524,11 +1531,48 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
 
         # أدوات الحساب والصفحات الجديدة
         if p == "/topup":
-            go("/settings")
+            res(get_topup_page(db, user))
             return
 
         if p == "/topup_action":
-            go("/settings")
+            if q.get("type", [""])[0] == "request":
+                try:
+                    amount = round(float(q.get("amount", ["0"])[0]), 2)
+                except ValueError:
+                    amount = 0
+                method = q.get("method", [""])[0].strip()
+                reference = q.get("reference", [""])[0].strip()[:160]
+                if amount < 1 or not method or not reference:
+                    res(get_topup_page(db, user, "تحقق من المبلغ وطريقة الدفع ورقم العملية"))
+                    return
+                topup = {
+                    "id": secrets.token_hex(5).upper(), "user": user, "amount": amount,
+                    "method": method, "reference": reference, "status": "قيد المراجعة",
+                    "created_at": now()
+                }
+                db.setdefault("topups", []).append(topup)
+                notify(db, user, "تم استلام طلب الشحن", f"طلب شحن بقيمة {money(amount)} قيد المراجعة")
+                admin_name = next((name for name, account in db.get("users", {}).items() if account.get("is_admin")), None)
+                if admin_name:
+                    notify(db, admin_name, "طلب شحن جديد", f"العضو {user} طلب شحن {money(amount)}")
+                audit(db, user, "request_topup", f"{money(amount)} · {method}")
+                save_db(db)
+                res(get_topup_page(db, user, "تم إرسال طلب الشحن، وسيتم اعتماده بعد المراجعة"))
+            else:
+                go("/topup")
+            return
+
+        if p == "/cancel_order":
+            order_id = q.get("id", [""])[0]
+            order = next((o for o in db.get("orders", []) if o.get("id") == order_id and o.get("user") == user), None)
+            if order and order.get("status") in ("قيد التنفيذ", "معلّق") and str(order.get("remote_id", "")).startswith("LOCAL-"):
+                order["status"] = "ملغى"
+                refund = float(order.get("cost", 0))
+                db["users"][user]["balance"] = float(db["users"][user].get("balance", 0)) + refund
+                notify(db, user, "تم إلغاء الطلب", f"تمت إعادة {money(refund)} إلى رصيدك")
+                audit(db, user, "cancel_order", order_id)
+                save_db(db)
+            go("/order_history")
             return
 
         if p == "/notifications":
@@ -1702,10 +1746,19 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                 go("/admin_panel")
 
             elif t in ("approve_topup", "reject_topup"):
-                # الطلبات القديمة لا تُعالج بعد اعتماد الرصيد اليدوي من المالك.
-                audit(db, user, "legacy_balance_request_blocked", q.get("id", [""])[0])
-                save_db(db)
-                go("/admin_panel")
+                topup_id = q.get("id", [""])[0]
+                topup = next((item for item in db.get("topups", []) if item.get("id") == topup_id), None)
+                if topup and topup.get("status") == "قيد المراجعة":
+                    accepted = t == "approve_topup"
+                    topup["status"] = "مقبول" if accepted else "مرفوض"
+                    if accepted:
+                        target = db.get("users", {}).get(topup.get("user"))
+                        if target is not None:
+                            target["balance"] = float(target.get("balance", 0)) + float(topup.get("amount", 0))
+                    notify(db, topup.get("user"), "تحديث طلب الشحن", f"تم {('اعتماد' if accepted else 'رفض')} طلب الشحن بقيمة {money(topup.get('amount'))}")
+                    audit(db, user, "approve_topup" if accepted else "reject_topup", topup_id)
+                    save_db(db)
+                go("/admin_topups")
 
             elif t == "create_coupon":
                 code = q.get("code", [""])[0].strip().upper()
@@ -1726,6 +1779,17 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                 audit(db, user, "delete_coupon", code)
                 save_db(db)
                 go("/admin_coupons")
+
+            elif t == "announcement":
+                announcement = q.get("message", [""])[0].strip()[:240]
+                if announcement:
+                    db["announcement"] = announcement
+                    for target in db.get("users", {}):
+                        if target != user:
+                            notify(db, target, "إعلان من المنصة", announcement)
+                    audit(db, user, "update_announcement", announcement)
+                    save_db(db)
+                go("/admin_panel")
 
             elif t == "reply_ticket":
                 ticket_id = q.get("id", [""])[0]
