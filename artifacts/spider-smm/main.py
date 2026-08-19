@@ -108,7 +108,10 @@ def load_db():
             "is_active": True, "default_language": "ar",
             "topups": [], "coupons": [], "tickets": [], "balance_logs": [],
             "notifications": [], "audit_logs": [], "referral_percent": 5,
-            "category_images": {}
+            "category_images": {}, "providers": [], "site_settings": {
+                "site_name": SITE_NAME, "support_email": "", "maintenance_message": "",
+                "allow_registration": True, "default_language": "ar"
+            }
         }
         save_db(data)
         return data
@@ -139,6 +142,11 @@ def load_db():
     data.setdefault("audit_logs", [])
     data.setdefault("balance_logs", [])
     data.setdefault("category_images", {})
+    data.setdefault("providers", [])
+    data.setdefault("site_settings", {
+        "site_name": SITE_NAME, "support_email": "", "maintenance_message": "",
+        "allow_registration": True, "default_language": "ar"
+    })
     data.setdefault("announcement", "مرحباً بك في عالم الفخامة الرقمية!")
     data.setdefault("is_active", True)
     data.setdefault("default_language", "ar")
@@ -148,6 +156,8 @@ def load_db():
             "balance": 0.0, "is_admin": False, "phone": "", "email": "",
             "lang": "ar", "referral_code": make_referral_code(username),
             "created_at": now(), "referrals_earnings": 0.0
+            , "last_login": "", "role": "admin" if account.get("is_admin") else "client",
+            "notifications_enabled": True, "theme": "dark"
         }
         for key, value in defaults.items():
             if key not in account:
@@ -795,7 +805,7 @@ def get_change_password_page(message=""):
 
 def get_support_page(db, user, message=""):
     tickets = [t for t in db.get("tickets", []) if t.get("user") == user]
-    rows = "".join(f"""<div class="order-row"><div><b>#{h(t.get('id'))} · {h(t.get('subject'))}</b><br><small>{h(t.get('created_at'))}</small></div><span class="badge">{h(t.get('status'))}</span></div>""" for t in reversed(tickets)) or "<p style='opacity:.55;text-align:center;'>لا توجد تذاكر</p>"
+    rows = "".join(f"""<a class="order-row" style="text-decoration:none;" href="/ticket?id={h(t.get('id'))}"><div><b>#{h(t.get('id'))} · {h(t.get('subject'))}</b><br><small>{h(t.get('created_at'))} · {len(t.get('replies', []))} ردود</small></div><span class="badge">{h(t.get('status'))}</span></a>""" for t in reversed(tickets)) or "<p style='opacity:.55;text-align:center;'>لا توجد تذاكر</p>"
     return f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">{get_master_style()}</head><body>
     <div class="header"><b style="color:var(--accent);font-size:22px;">الدعم الفني</b><a href="/" style="color:white;font-size:24px;"><i class="fas fa-home"></i></a></div>
     <div class="card"><h3 style="color:var(--accent);">فتح تذكرة جديدة</h3>{f'<p style="color:#2ecc71;">{h(message)}</p>' if message else ''}
@@ -807,6 +817,20 @@ def get_terms_page():
     <div class="header"><b style="color:var(--accent);font-size:22px;">شروط الاستخدام</b><a href="/" style="color:white;font-size:24px;"><i class="fas fa-home"></i></a></div>
     <div class="card" style="line-height:2;"><h3 style="color:var(--accent);">استخدام مسؤول</h3><p>يجب استخدام الخدمات لأغراض تسويقية قانونية وملتزمة بسياسات المنصات. يمنع استخدام الموقع للانتحال أو الاحتيال أو نشر المحتوى المخالف.</p><h3 style="color:var(--accent);">الطلبات</h3><p>تأكد من صحة الرابط والكمية قبل تنفيذ الطلب. بعض الخدمات لا يمكن إلغاؤها بعد إرسالها للمزود.</p><h3 style="color:var(--accent);">الخصوصية</h3><p>نحفظ فقط البيانات اللازمة لتقديم الخدمة، ولا نطلب كلمات مرور حسابات التواصل الاجتماعي.</p></div>
     </body></html>"""
+
+def get_ticket_page(db, user, ticket_id, message=""):
+    ticket = next((t for t in db.get("tickets", []) if t.get("id") == ticket_id and t.get("user") == user), None)
+    if not ticket:
+        return get_support_page(db, user, "التذكرة غير موجودة")
+    replies = "".join(
+        f"""<div class="card" style="margin:10px 0;background:rgba({'109,214,160' if r.get('from') != user else '111,209,215'},.07);"><b>{h(r.get('from'))}</b><small style="display:block;color:var(--muted);">{h(r.get('created_at'))}</small><p>{h(r.get('message'))}</p></div>"""
+        for r in ticket.get("replies", [])
+    )
+    form = "" if ticket.get("status") == "مغلقة" else f"""<form action="/ticket_action" method="GET"><input type="hidden" name="type" value="reply"><input type="hidden" name="id" value="{h(ticket_id)}"><textarea name="message" placeholder="اكتب ردك أو أضف معلومات جديدة" required></textarea><button class="btn-send">إرسال الرد</button></form>"""
+    return f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">{get_master_style()}</head><body>
+    <div class="header"><b style="color:var(--accent);font-size:20px;">تذكرة #{h(ticket_id)}</b><a href="/support" style="font-size:22px;"><i class="fas fa-arrow-right"></i></a></div>
+    <div class="card"><div class="section-head"><div><h2>{h(ticket.get('subject'))}</h2><small>{h(ticket.get('created_at'))}</small></div><span class="badge">{h(ticket.get('status'))}</span></div><p>{h(ticket.get('message'))}</p>{replies}{form}</div>
+    <div class="bottom-nav"><a href="/" class="nav-item"><i class="fas fa-home"></i>الرئيسية</a><a href="/support" class="nav-item active"><i class="fas fa-headset"></i>الدعم</a><a href="/settings" class="nav-item"><i class="fas fa-cog"></i>الإعدادات</a></div></body></html>"""
 
 def admin_layout(title, content):
     return f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">{get_master_style()}
@@ -861,6 +885,54 @@ def get_admin_tickets_page(db):
 def get_admin_backup_page():
     content = """<div class="card" style="text-align:center;"><i class="fas fa-database" style="font-size:54px;color:var(--accent);"></i><h3>نسخة احتياطية للبيانات</h3><p style="opacity:.7;">ينشئ نسخة مؤرخة من بيانات المستخدمين والطلبات والإعدادات.</p><a class="btn-send" style="display:block;text-decoration:none;" href="/admin_action?type=backup">إنشاء نسخة احتياطية الآن</a></div>"""
     return admin_layout("النسخ الاحتياطي", content)
+
+def get_order_detail_page(db, user, order_id):
+    order = next((o for o in db.get("orders", []) if o.get("id") == order_id and o.get("user") == user), None)
+    if not order:
+        return get_orders_page(db, user)
+    status = str(order.get("status", ""))
+    color = "#6dd6a0" if "مكتمل" in status else ("#ed7d86" if "ملغى" in status else "#f6c85f")
+    progress = 100 if "مكتمل" in status else (0 if "معلّق" in status else 55)
+    return f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">{get_master_style()}</head><body>
+    <div class="header"><b style="color:var(--accent);font-size:20px;">تفاصيل الطلب #{h(order_id)}</b><a href="/order_history" style="font-size:22px;"><i class="fas fa-arrow-right"></i></a></div>
+    <div class="card"><div class="section-head"><div><div class="eyebrow">تفاصيل التنفيذ</div><h2>{h(order.get('svc'))}</h2></div><span class="badge" style="color:{color};">{h(status)}</span></div>
+      <div style="height:10px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden;margin:20px 0 7px;"><div style="height:100%;width:{progress}%;background:linear-gradient(90deg,var(--cyan),var(--accent));border-radius:99px;"></div></div>
+      <small style="color:var(--muted);">نسبة الإنجاز التقديرية: {progress}%</small>
+      <div class="card" style="margin:18px 0 0;background:rgba(0,0,0,.12);"><div class="modal-detail-row"><span>رقم الطلب</span><b>{h(order_id)}</b></div><div class="modal-detail-row"><span>الكمية</span><b>{h(order.get('qty'))}</b></div><div class="modal-detail-row"><span>التكلفة</span><b>{money(order.get('cost'))}</b></div><div class="modal-detail-row"><span>الرابط</span><a href="{h(order.get('link'))}" target="_blank" style="color:var(--cyan);max-width:60%;overflow:hidden;text-overflow:ellipsis;">{h(order.get('link'))}</a></div><div class="modal-detail-row"><span>تاريخ الإنشاء</span><span>{h(order.get('created_at'))}</span></div></div>
+      <div class="quick-links"><a href="/repeat_order?id={h(order_id)}"><i class="fas fa-rotate-right"></i> إعادة الطلب</a><a href="/support?order={h(order_id)}"><i class="fas fa-headset"></i> فتح تذكرة</a></div>
+    </div><div class="bottom-nav"><a href="/" class="nav-item"><i class="fas fa-home"></i>الرئيسية</a><a href="/order_history" class="nav-item active"><i class="fas fa-history"></i>الطلبات</a><a href="/settings" class="nav-item"><i class="fas fa-cog"></i>الإعدادات</a></div></body></html>"""
+
+def get_admin_orders_page(db):
+    query = "".join([])  # keeps the page server-rendered and filterable without exposing provider keys
+    rows = "".join(
+        f"""<tr class="admin-order"><td>#{h(o.get('id'))}</td><td>{h(o.get('user'))}</td><td>{h(o.get('svc'))}</td><td>{h(o.get('qty'))}</td><td>{money(o.get('cost'))}</td><td><span class="pill">{h(o.get('status'))}</span></td><td>{h(o.get('created_at'))}</td></tr>"""
+        for o in reversed(db.get("orders", []))
+    ) or "<tr><td colspan='7'>لا توجد طلبات</td></tr>"
+    return admin_layout("إدارة الطلبات", f"""<div class="card"><div class="section-head"><div><h3>كل الطلبات</h3><p class="muted">ابحث برقم الطلب أو العميل أو الخدمة.</p></div><a class="pill" href="/admin_action?type=sync_orders">تحديث المزودين</a></div><input id="admin-order-search" placeholder="بحث..." oninput="filterAdminOrders()"><div class="table-wrap"><table class="admin-table"><thead><tr><th>الرقم</th><th>العميل</th><th>الخدمة</th><th>الكمية</th><th>القيمة</th><th>الحالة</th><th>التاريخ</th></tr></thead><tbody>{rows}</tbody></table></div></div><script>function filterAdminOrders(){{const q=document.getElementById('admin-order-search').value.toLowerCase();document.querySelectorAll('.admin-order').forEach(r=>r.style.display=r.innerText.toLowerCase().includes(q)?'':'none');}}</script>""")
+
+def get_admin_users_page(db):
+    rows = "".join(
+        f"""<tr class="admin-user"><td>{h(name)}</td><td>{h(account.get('email') or '—')}</td><td>{h(account.get('phone') or '—')}</td><td>{money(account.get('balance'))}</td><td>{'مالك' if account.get('is_admin') else 'عميل'}</td><td>{h(account.get('created_at'))}</td><td><a class="pill" href="/admin_action?type=notify_user&u={h(name)}">إشعار</a></td></tr>"""
+        for name, account in db.get("users", {}).items()
+    )
+    return admin_layout("إدارة العملاء", f"""<div class="card"><div class="section-head"><div><h3>العملاء والحسابات</h3><p class="muted">تابع نشاط العميل ورصيده وبيانات حسابه.</p></div><span class="pill">{len(db.get('users', {}))} حساب</span></div><input id="user-search" placeholder="ابحث باسم المستخدم أو الهاتف..." oninput="filterUsers()"><div class="table-wrap"><table class="admin-table"><tr><th>المستخدم</th><th>البريد</th><th>الهاتف</th><th>الرصيد</th><th>الدور</th><th>التسجيل</th><th>إجراء</th></tr>{rows}</table></div></div><script>function filterUsers(){{const q=document.getElementById('user-search').value.toLowerCase();document.querySelectorAll('.admin-user').forEach(r=>r.style.display=r.innerText.toLowerCase().includes(q)?'':'none');}}</script>""")
+
+def get_admin_providers_page(db):
+    providers = db.get("providers", [])
+    rows = "".join(f"""<tr><td>{h(p.get('name'))}</td><td>{h(p.get('url'))}</td><td>{h(p.get('status','فعال'))}</td><td>{h(p.get('services_count',0))}</td><td><a class="pill" style="color:var(--danger);" href="/admin_action?type=del_provider&id={h(p.get('id'))}" onclick="return confirm('حذف المزود؟')">حذف</a></td></tr>""" for p in providers) or "<tr><td colspan='5'>لا يوجد مزودون. يمكنك إضافة خدمات محلية أو مزود جديد.</td></tr>"
+    return admin_layout("إدارة المزودين", f"""<div class="card"><h3>إضافة مزود خدمة</h3><form action="/admin_action" method="GET"><input type="hidden" name="type" value="add_provider"><input name="name" placeholder="اسم المزود" required><input type="url" name="url" placeholder="رابط API" required><input type="password" name="key" placeholder="مفتاح API" required><button class="btn-send">حفظ المزود</button></form></div><div class="card"><h3>المزودون الحاليون</h3><div class="table-wrap"><table class="admin-table"><tr><th>الاسم</th><th>الرابط</th><th>الحالة</th><th>الخدمات</th><th>إجراء</th></tr>{rows}</table></div></div>""")
+
+def get_admin_notifications_page(db):
+    rows = "".join(f"""<div class="order-row"><div><b>{h(n.get('title'))}</b><br><small>إلى: {h(n.get('user'))} · {h(n.get('created_at'))}</small><br><span class="muted">{h(n.get('message'))}</span></div><span class="badge">{'مقروء' if n.get('read') else 'جديد'}</span></div>""" for n in reversed(db.get("notifications", [])[-40:])) or "<div class='empty-state'>لا توجد إشعارات.</div>"
+    return admin_layout("الإشعارات", f"""<div class="card"><h3>إرسال إشعار</h3><form action="/admin_action" method="GET"><input type="hidden" name="type" value="send_notification"><select name="target"><option value="all">كل العملاء</option>{''.join(f'<option value="{h(name)}">{h(name)}</option>' for name, account in db.get('users',{}).items() if not account.get('is_admin'))}</select><input name="title" placeholder="عنوان الإشعار" required><textarea name="message" placeholder="نص الإشعار" required></textarea><button class="btn-send">إرسال الإشعار</button></form></div><div class="card"><h3>آخر الإشعارات</h3>{rows}</div>""")
+
+def get_admin_settings_page(db):
+    settings = db.get("site_settings", {})
+    return admin_layout("إعدادات المنصة", f"""<div class="card"><h3>الإعدادات العامة</h3><form action="/admin_action" method="GET"><input type="hidden" name="type" value="site_settings"><input name="site_name" value="{h(settings.get('site_name', SITE_NAME))}" placeholder="اسم المنصة"><input name="support_email" type="email" value="{h(settings.get('support_email',''))}" placeholder="بريد الدعم"><textarea name="maintenance_message" placeholder="رسالة وضع الصيانة">{h(settings.get('maintenance_message',''))}</textarea><label class="settings-item" style="margin-top:12px;"><input type="checkbox" name="allow_registration" {'checked' if settings.get('allow_registration', True) else ''} style="width:auto;margin:0;"> السماح بتسجيل حسابات جديدة</label><button class="btn-send">حفظ الإعدادات</button></form></div><div class="card"><h3>إجراءات سريعة</h3><div class="quick-links"><a href="/admin_backup">نسخة احتياطية</a><a href="/admin_security">سجل النشاط والأمان</a></div></div>""")
+
+def get_admin_security_page(db):
+    rows = "".join(f"""<tr><td>{h(a.get('created_at'))}</td><td>{h(a.get('actor'))}</td><td>{h(a.get('action'))}</td><td>{h(a.get('detail'))}</td></tr>""" for a in reversed(db.get("audit_logs", [])[-100:])) or "<tr><td colspan='4'>لا يوجد نشاط مسجل</td></tr>"
+    return admin_layout("الأمان وسجل النشاط", f"""<div class="card"><div class="inline-note"><i class="fas fa-shield-halved"></i><span>كل العمليات الحساسة مثل تعديل الرصيد وتغيير الخدمات والدخول يتم تسجيلها للمراجعة.</span></div><div class="table-wrap"><table class="admin-table"><tr><th>التاريخ</th><th>المنفذ</th><th>العملية</th><th>التفاصيل</th></tr>{rows}</table></div></div>""")
 
 def get_admin_page(db):
     users, orders, services = db.get("users", {}), db.get("orders", []), db.get("services", [])
