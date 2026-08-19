@@ -380,9 +380,9 @@ def get_master_style(db=None):
             background-size:100% 5px; z-index: -1; }}
         a {{ color: inherit; }}
         .header {{
-            min-height: 76px; background: rgba(9, 17, 30, .88); backdrop-filter: blur(18px);
+            min-height: 68px; background: rgba(9, 17, 30, .88); backdrop-filter: blur(18px);
             display:flex; align-items:center; justify-content:space-between; gap:18px;
-            padding: 14px clamp(16px, 4vw, 52px); border-bottom:1px solid var(--border);
+            padding: 11px clamp(16px, 4vw, 52px); border-bottom:1px solid var(--border);
             position:sticky; top:0; z-index:1000;
         }}
         .header a {{ text-decoration:none; }}
@@ -398,11 +398,11 @@ def get_master_style(db=None):
         .settings-group {{ width:min(760px, 100%); margin:24px auto; }}
         .settings-title {{ margin:0 4px 9px; }}
         .settings-list {{ background:rgba(8, 17, 30, .34); border-radius:18px; overflow:hidden; border:1px solid var(--border); }}
-        .settings-item {{ display:flex; align-items:center; gap:12px; min-height:64px; padding:15px 18px; text-decoration:none; color:var(--text); border-bottom:1px solid var(--border); }}
+        .settings-item {{ display:flex; align-items:center; gap:10px; min-height:58px; padding:12px 16px; text-decoration:none; color:var(--text); border-bottom:1px solid var(--border); }}
         .settings-item:last-child {{ border:0; }}
         .settings-item:hover {{ background:rgba(111, 209, 215, .07); }}
-        .settings-item > i:first-child {{ width:24px; color:var(--accent); text-align:center; }}
-        .settings-item .text {{ flex:1; font-size:14px; font-weight:700; }}
+        .settings-item > i:first-child {{ width:21px; color:var(--accent); text-align:center; font-size:15px; }}
+        .settings-item .text {{ flex:1; font-size:13px; font-weight:700; }}
         .settings-item .chevron {{ font-size:11px; color:var(--muted); }}
         input, select, textarea, button {{ font:inherit; }}
         input, select, textarea {{
@@ -413,27 +413,27 @@ def get_master_style(db=None):
         input::placeholder, textarea::placeholder {{ color:#71859d; }}
         input:focus, select:focus, textarea:focus {{ border-color:rgba(246, 200, 95, .7); box-shadow:0 0 0 3px rgba(246, 200, 95, .09); }}
         select option {{ background:var(--panel); color:var(--text); }}
-        button, .btn-send {{ min-height:46px; padding:11px 17px; border-radius:13px; cursor:pointer; }}
+        button, .btn-send {{ min-height:42px; padding:9px 14px; border-radius:12px; cursor:pointer; }}
         .btn-send {{ background:linear-gradient(120deg, var(--accent), var(--accent-strong)); color:#17202b; font-weight:900; border:0; box-shadow:0 8px 20px rgba(239,159,75,.18); }}
         .btn-send:hover {{ transform:translateY(-1px); filter:brightness(1.04); }}
         .btn-quiet {{ background:rgba(111, 209, 215, .08); color:var(--cyan); border:1px solid rgba(111,209,215,.25); text-decoration:none; }}
         .floating-tg {{
-            position:fixed; bottom:116px; left:22px; width:48px; height:48px; background:var(--cyan);
+            position:fixed; bottom:116px; left:22px; width:42px; height:42px; background:var(--cyan);
             border-radius:15px; display:flex; align-items:center; justify-content:center; color:#0d1726;
-            font-size:21px; z-index:3000; box-shadow:0 8px 25px rgba(111,209,215,.2); text-decoration:none;
+            font-size:18px; z-index:3000; box-shadow:0 8px 25px rgba(111,209,215,.2); text-decoration:none;
         }}
         .bottom-nav {{
             position:fixed; bottom:15px; left:50%; transform:translateX(-50%); width:min(620px, calc(100% - 24px));
-            min-height:68px; padding:7px; background:rgba(9,17,30,.92); backdrop-filter:blur(20px);
+            min-height:60px; padding:6px; background:rgba(9,17,30,.92); backdrop-filter:blur(20px);
             display:flex; justify-content:space-around; align-items:center; border-radius:20px;
             border:1px solid var(--border); z-index:2000; box-shadow:0 12px 30px rgba(0,0,0,.28);
         }}
-        .nav-item {{ color:var(--muted); text-decoration:none; font-size:10px; text-align:center; flex:1; padding:6px 3px; border-radius:13px; }}
+        .nav-item {{ color:var(--muted); text-decoration:none; font-size:9px; text-align:center; flex:1; padding:5px 3px; border-radius:11px; }}
         .nav-item.active, .nav-item:hover {{ color:var(--accent); background:rgba(246,200,95,.08); }}
-        .nav-item i {{ font-size:18px; display:block; margin-bottom:2px; }}
+        .nav-item i {{ font-size:16px; display:block; margin-bottom:1px; }}
         .stats-grid {{ width:min(1180px, calc(100% - 32px)); margin:18px auto; display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }}
         .stat-item {{ background:rgba(20, 34, 55, .82); border:1px solid var(--border); border-radius:18px; padding:17px 12px; text-align:center; }}
-        .stat-item i {{ color:var(--accent); display:block; margin-bottom:7px; font-size:18px; }}
+        .stat-item i {{ color:var(--accent); display:block; margin-bottom:6px; font-size:16px; }}
         .stat-label {{ font-size:11px; color:var(--muted); }}
         .stat-value {{ font-size:17px; font-weight:900; }}
         .badge, .pill {{ display:inline-flex; align-items:center; gap:5px; background:rgba(246,200,95,.14); color:var(--accent); padding:4px 10px; border-radius:99px; font-weight:900; font-size:11px; }}
