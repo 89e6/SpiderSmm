@@ -854,16 +854,28 @@ def get_admin_reports_page(db):
     users = db.get("users", {})
     by_status = {}
     by_service = {}
+    by_day = {}
     for order in orders:
         status = order.get("status", "غير معروف")
         service = order.get("svc", "غير معروف")
         by_status[status] = by_status.get(status, 0) + 1
         by_service[service] = by_service.get(service, 0) + float(order.get("cost", 0))
-    status_rows = "".join(f"<tr><td>{h(k)}</td><td>{v}</td></tr>" for k, v in by_status.items()) or "<tr><td colspan='2'>لا توجد بيانات</td></tr>"
-    service_rows = "".join(f"<tr><td>{h(k)}</td><td>{money(v)}</td></tr>" for k, v in sorted(by_service.items(), key=lambda x: x[1], reverse=True)) or "<tr><td colspan='2'>لا توجد بيانات</td></tr>"
-    content = f"""<div class="card"><div class="stats-grid"><div class="stat-item"><i class="fas fa-users"></i><div class="stat-label">الأعضاء</div><div class="stat-value">{len(users)}</div></div><div class="stat-item"><i class="fas fa-shopping-bag"></i><div class="stat-label">الطلبات</div><div class="stat-value">{len(orders)}</div></div><div class="stat-item"><i class="fas fa-chart-line"></i><div class="stat-label">المبيعات</div><div class="stat-value">{money(sum(float(o.get('cost', 0)) for o in orders))}</div></div></div></div>
-    <div class="card"><h3 style="color:var(--accent);">الطلبات حسب الحالة</h3><table class="admin-table"><tr><th>الحالة</th><th>العدد</th></tr>{status_rows}</table></div>
-    <div class="card"><h3 style="color:var(--accent);">المبيعات حسب الخدمة</h3><table class="admin-table"><tr><th>الخدمة</th><th>القيمة</th></tr>{service_rows}</table></div>"""
+        day = str(order.get("created_at", ""))[:10] or "غير محدد"
+        by_day[day] = by_day.get(day, 0) + float(order.get("cost", 0))
+    total = sum(float(o.get("cost", 0)) for o in orders)
+    completed = len([o for o in orders if "مكتمل" in str(o.get("status", ""))])
+    open_tickets = len([t for t in db.get("tickets", []) if t.get("status") != "مغلقة"])
+    status_rows = "".join(f"<tr><td><span class='status-dot'></span>{h(k)}</td><td>{v}</td><td>{round(v / max(len(orders), 1) * 100)}%</td></tr>" for k, v in sorted(by_status.items(), key=lambda x: x[1], reverse=True)) or "<tr><td colspan='3'>لا توجد بيانات</td></tr>"
+    max_service = max(by_service.values(), default=1)
+    service_rows = "".join(f"<tr><td>{h(k)}</td><td><div class='report-bar'><i style='width:{max(5, int(v / max_service * 100))}%'></i></div></td><td>{money(v)}</td></tr>" for k, v in sorted(by_service.items(), key=lambda x: x[1], reverse=True)) or "<tr><td colspan='3'>لا توجد بيانات</td></tr>"
+    max_day = max(by_day.values(), default=1)
+    day_rows = "".join(f"<div class='day-column'><b>{money(v)}</b><i style='height:{max(8, int(v / max_day * 150))}px'></i><small>{h(k[-5:])}</small></div>" for k, v in sorted(by_day.items())[-14:]) or "<div class='empty-state'>ستظهر الحركة اليومية بعد إنشاء الطلبات.</div>"
+    content = f"""<style>.report-hero{{display:flex;justify-content:space-between;align-items:end;gap:15px}}.report-stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}}.report-stat{{padding:17px;border:1px solid var(--border);border-radius:18px;background:rgba(111,209,215,.06)}}.report-stat i{{color:var(--accent)}}.report-stat strong{{display:block;font-size:22px;margin-top:7px}}.report-stat small{{color:var(--muted)}}.report-bar{{height:8px;background:rgba(255,255,255,.08);border-radius:99px;min-width:130px;overflow:hidden}}.report-bar i{{display:block;height:100%;background:linear-gradient(90deg,var(--cyan),var(--accent));border-radius:99px}}.status-dot{{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-left:7px}}.chart-days{{height:205px;display:flex;align-items:end;gap:12px;overflow:auto;padding:15px 5px;border-bottom:1px solid var(--border)}}.day-column{{min-width:52px;height:180px;display:flex;flex-direction:column;justify-content:end;align-items:center;gap:5px}}.day-column b{{font-size:10px;color:var(--accent)}}.day-column i{{display:block;width:28px;background:linear-gradient(180deg,var(--accent),var(--accent-strong));border-radius:8px 8px 3px 3px;min-height:8px}}.day-column small{{color:var(--muted);font-size:10px}}@media(max-width:760px){{.report-stats{{grid-template-columns:1fr 1fr}}.report-hero{{align-items:flex-start;flex-direction:column}}}}</style>
+    <div class="card report-hero"><div><div class="eyebrow">تحليل الأداء</div><h2 style="margin:3px 0;">التقارير والإحصائيات</h2><p class="muted">قراءة سريعة للمبيعات والطلبات وصحة المنصة.</p></div><a class="pill" href="/admin_action?type=backup"><i class="fas fa-download"></i> حفظ نسخة</a></div>
+    <div class="report-stats"><div class="report-stat"><i class="fas fa-chart-line"></i><strong>{money(total)}</strong><small>قيمة الطلبات</small></div><div class="report-stat"><i class="fas fa-check-circle"></i><strong>{completed}</strong><small>طلبات مكتملة</small></div><div class="report-stat"><i class="fas fa-users"></i><strong>{len(users)}</strong><small>الحسابات</small></div><div class="report-stat"><i class="fas fa-headset"></i><strong>{open_tickets}</strong><small>تذاكر مفتوحة</small></div></div>
+    <div class="card"><div class="section-head"><div><h3>الحركة اليومية</h3><span class="muted">آخر 14 يوماً مسجلاً</span></div><span class="pill">{len(orders)} طلب</span></div><div class="chart-days">{day_rows}</div></div>
+    <div class="card"><h3 style="color:var(--accent);">الطلبات حسب الحالة</h3><div class="table-wrap"><table class="admin-table"><tr><th>الحالة</th><th>العدد</th><th>النسبة</th></tr>{status_rows}</table></div></div>
+    <div class="card"><h3 style="color:var(--accent);">الأداء حسب الخدمة</h3><div class="table-wrap"><table class="admin-table"><tr><th>الخدمة</th><th>المؤشر</th><th>القيمة</th></tr>{service_rows}</table></div></div>"""
     return admin_layout("التقارير والإحصائيات", content)
 
 def get_admin_topups_page(db):
@@ -934,7 +946,10 @@ def get_admin_notifications_page(db):
 
 def get_admin_settings_page(db):
     settings = db.get("site_settings", {})
-    return admin_layout("إعدادات المنصة", f"""<div class="card"><h3>الإعدادات العامة</h3><form action="/admin_action" method="GET"><input type="hidden" name="type" value="site_settings"><input name="site_name" value="{h(settings.get('site_name', SITE_NAME))}" placeholder="اسم المنصة"><input name="support_email" type="email" value="{h(settings.get('support_email',''))}" placeholder="بريد الدعم"><textarea name="maintenance_message" placeholder="رسالة وضع الصيانة">{h(settings.get('maintenance_message',''))}</textarea><label class="settings-item" style="margin-top:12px;"><input type="checkbox" name="allow_registration" {'checked' if settings.get('allow_registration', True) else ''} style="width:auto;margin:0;"> السماح بتسجيل حسابات جديدة</label><button class="btn-send">حفظ الإعدادات</button></form></div><div class="card"><h3>إجراءات سريعة</h3><div class="quick-links"><a href="/admin_backup">نسخة احتياطية</a><a href="/admin_security">سجل النشاط والأمان</a></div></div>""")
+    return admin_layout("إعدادات المنصة", f"""<style>.settings-tabs{{display:flex;gap:7px;overflow:auto;margin-bottom:16px}}.settings-tabs a{{padding:10px 14px;border-radius:12px;text-decoration:none;background:rgba(111,209,215,.07);border:1px solid var(--border);font-size:11px;color:var(--muted);white-space:nowrap}}.settings-tabs a.active{{color:#17202b;background:var(--accent);border-color:var(--accent);font-weight:900}}.settings-card{{background:rgba(8,17,30,.25);border:1px solid var(--border);border-radius:18px;padding:16px;margin-top:14px}}.settings-card h4{{margin:0 0 5px;color:var(--accent)}}.settings-card p{{margin:0 0 14px;color:var(--muted);font-size:11px}}</style>
+    <div class="settings-tabs"><a class="active" href="/admin_settings">العامة</a><a href="/admin_security">الأمان والنشاط</a><a href="/admin_backup">النسخ الاحتياطي</a><a href="/admin_notifications">الإشعارات</a></div>
+    <div class="card"><div class="section-head"><div><div class="eyebrow">هوية المنصة</div><h3 style="margin:3px 0;">الإعدادات العامة</h3></div><i class="fas fa-sliders" style="color:var(--accent);font-size:21px;"></i></div><form action="/admin_action" method="GET"><input type="hidden" name="type" value="site_settings"><div class="settings-card"><h4>الاسم والمراسلة</h4><p>هذه البيانات تظهر في العناوين ورسائل الدعم والتنبيهات.</p><input name="site_name" value="{h(settings.get('site_name', SITE_NAME))}" placeholder="اسم المنصة"><input name="support_email" type="email" value="{h(settings.get('support_email',''))}" placeholder="بريد الدعم"></div><div class="settings-card"><h4>وضع الموقع</h4><p>اكتب رسالة تظهر عند تحويل الموقع إلى الصيانة.</p><textarea name="maintenance_message" placeholder="رسالة وضع الصيانة">{h(settings.get('maintenance_message',''))}</textarea><label class="settings-item" style="margin-top:12px;"><input type="checkbox" name="allow_registration" {'checked' if settings.get('allow_registration', True) else ''} style="width:auto;margin:0;"> السماح بتسجيل حسابات جديدة</label></div><button class="btn-send" style="width:100%;margin-top:17px;"><i class="fas fa-save"></i> حفظ الإعدادات</button></form></div>
+    <div class="card"><div class="section-head"><div><h3>اختصارات الإعدادات</h3><p class="muted">الوصول السريع للأقسام الحساسة.</p></div></div><div class="quick-links"><a href="/admin_backup"><i class="fas fa-database"></i> نسخة احتياطية</a><a href="/admin_security"><i class="fas fa-shield-halved"></i> سجل النشاط والأمان</a></div></div>""")
 
 def get_admin_security_page(db):
     rows = "".join(f"""<tr><td>{h(a.get('created_at'))}</td><td>{h(a.get('actor'))}</td><td>{h(a.get('action'))}</td><td>{h(a.get('detail'))}</td></tr>""" for a in reversed(db.get("audit_logs", [])[-100:])) or "<tr><td colspan='4'>لا يوجد نشاط مسجل</td></tr>"
@@ -1063,6 +1078,16 @@ def get_admin_page_v2(db):
     active = db.get("is_active", True)
     status_label = "الموقع يعمل" if active else "وضع الصيانة"
     status_class = "online" if active else "offline"
+    pending_orders = len([o for o in orders if o.get("status") in ("قيد التنفيذ", "معلّق")])
+    attention = []
+    if pending_orders:
+        attention.append(f'<a href="/admin_orders"><i class="fas fa-clock"></i><span>{pending_orders} طلب بانتظار المتابعة</span><b>فتح</b></a>')
+    if open_tickets:
+        attention.append(f'<a href="/admin_tickets"><i class="fas fa-headset"></i><span>{open_tickets} تذكرة تحتاج رد</span><b>فتح</b></a>')
+    if pending_topups:
+        attention.append(f'<a href="/admin_topups"><i class="fas fa-inbox"></i><span>{pending_topups} طلب شحن للمراجعة</span><b>فتح</b></a>')
+    attention_html = "".join(attention) or '<div class="empty-state">كل شيء تحت السيطرة حالياً.</div>'
+    activity_html = "".join(f"<div class='balance-log'><div><b>{h(a.get('action'))}</b><small>{h(a.get('detail'))}</small></div><small>{h(a.get('created_at'))}</small></div>" for a in reversed(db.get("audit_logs", [])[-5:])) or '<div class="empty-state">لا يوجد نشاط حديث.</div>'
     category_images = db.get("category_images", {})
     category_names = sorted({str(service.get("cat", "عام")) for service in services if service.get("cat", "عام")})
     existing_images = []
@@ -1140,7 +1165,7 @@ def get_admin_page_v2(db):
       .delete-link {{ color:var(--danger); font-size:10px; text-decoration:none; }} .form-grid {{ display:grid; grid-template-columns:1fr 1fr; gap:0 10px; }} .form-grid .full {{ grid-column:1/-1; }}
       .field-note {{ display:block; color:var(--muted); font-size:10px; margin-top:6px; }} .balance-row {{ display:flex; justify-content:space-between; gap:10px; align-items:center; padding:12px 0; border-bottom:1px solid var(--border); }}
        .balance-row:last-child {{ border:0; }} .balance-row small {{ display:block; color:var(--muted); font-size:10px; }} .balance-form {{ display:flex; gap:5px; align-items:center; }} .balance-form input {{ margin:0; width:88px; padding:8px; font-size:11px; }} .balance-form button {{ margin:0; min-height:34px; padding:5px 8px; border:0; font-size:10px; font-weight:900; }} .plus {{ background:rgba(109,214,160,.16); color:var(--green); }} .minus {{ background:rgba(237,125,134,.14); color:var(--danger); }} .balance-log {{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }} .balance-log:last-child {{ border:0; }} .balance-log b, .balance-log small {{ display:block; }} .balance-log small {{ color:var(--muted); font-size:10px; }} .plus-text {{ color:var(--green); }} .minus-text {{ color:var(--danger); }}
-      .quick-actions {{ display:grid; grid-template-columns:repeat(2,1fr); gap:9px; }} .quick-actions a {{ padding:12px; border-radius:12px; text-decoration:none; background:rgba(111,209,215,.07); border:1px solid rgba(111,209,215,.18); color:var(--cyan); font-size:11px; font-weight:900; text-align:center; }}
+       .quick-actions {{ display:grid; grid-template-columns:repeat(2,1fr); gap:9px; }} .quick-actions a {{ padding:12px; border-radius:12px; text-decoration:none; background:rgba(111,209,215,.07); border:1px solid rgba(111,209,215,.18); color:var(--cyan); font-size:11px; font-weight:900; text-align:center; }} .attention-grid{{display:grid;grid-template-columns:1.2fr .8fr;gap:18px;margin-bottom:18px}}.attention-list a{{display:flex;align-items:center;gap:10px;padding:13px 0;border-bottom:1px solid var(--border);text-decoration:none}}.attention-list a:last-child{{border:0}}.attention-list i{{color:var(--accent);width:22px;text-align:center}}.attention-list span{{flex:1;font-size:12px}}.attention-list b{{color:var(--cyan);font-size:11px}}.dashboard-title{{display:flex;justify-content:space-between;align-items:center;gap:12px}}@media(max-width:900px){{.attention-grid{{grid-template-columns:1fr}}}}
       @media(max-width:900px) {{ .admin-grid {{ grid-template-columns:1fr; }} .admin-stats {{ grid-template-columns:repeat(2,1fr); }} }}
        @media(max-width:600px) {{ .admin-hero {{ align-items:flex-start; flex-direction:column; }} .service-row, .category-admin-row {{ grid-template-columns:42px 1fr; }} .service-actions, .category-admin-row form {{ grid-column:1/-1; }} .form-grid {{ grid-template-columns:1fr; }} .form-grid .full {{ grid-column:auto; }} .balance-row {{ align-items:flex-start; flex-direction:column; }} .balance-form {{ width:100%; }} .balance-form input {{ flex:1; }} }}
     </style></head><body>
@@ -1152,6 +1177,10 @@ def get_admin_page_v2(db):
           <div class="admin-stat"><i class="fas fa-wallet"></i><strong>{money(total_balances)}</strong><span>أرصدة العملاء</span></div>
           <div class="admin-stat"><i class="fas fa-bag-shopping"></i><strong>{len(orders)}</strong><span>الطلبات</span></div>
         </section>
+         <div class="attention-grid">
+           <section class="card admin-card"><div class="dashboard-title"><div><h2>يحتاج انتباهك</h2><p class="lead">أهم الأعمال التي تنتظر إجراءً.</p></div><i class="fas fa-bolt" style="color:var(--accent);"></i></div><div class="attention-list">{attention_html}</div></section>
+           <section class="card admin-card"><div class="dashboard-title"><div><h2>آخر النشاط</h2><p class="lead">آخر العمليات المسجلة.</p></div><i class="fas fa-wave-square" style="color:var(--cyan);"></i></div>{activity_html}</section>
+         </div>
         <div class="admin-grid">
           <div>
             <section class="card admin-card"><div class="section-head"><div><h2>إضافة خدمة</h2><p class="lead">أدخل بيانات المزود داخلياً، واختر صورة تظهر للعملاء.</p></div><i class="fas fa-plus-circle" style="color:var(--accent);font-size:21px;"></i></div>
