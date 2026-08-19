@@ -17,6 +17,45 @@ PORT = int(os.environ.get("PORT", 8080))
 DB_FILE = os.path.join(os.path.dirname(__file__), "spider_master_database.json")
 SITE_NAME = "SpiderSmm"
 TELEGRAM_USER = "SmmSpider" 
+CLERK_PUBLISHABLE_KEY = os.environ.get("CLERK_PUBLISHABLE_KEY", "")
+CLERK_SECRET_KEY = os.environ.get("CLERK_SECRET_KEY", "")
+
+APPLICATION_PRESETS = [
+    {"key": "instagram", "name": "Instagram", "label": "انستغرام", "image_url": "https://cdn.simpleicons.org/instagram/E4405F"},
+    {"key": "tiktok", "name": "TikTok", "label": "تيك توك", "image_url": "https://cdn.simpleicons.org/tiktok/ffffff"},
+    {"key": "youtube", "name": "YouTube", "label": "يوتيوب", "image_url": "https://cdn.simpleicons.org/youtube/FF0000"},
+    {"key": "facebook", "name": "Facebook", "label": "فيسبوك", "image_url": "https://cdn.simpleicons.org/facebook/1877F2"},
+    {"key": "telegram", "name": "Telegram", "label": "تليجرام", "image_url": "https://cdn.simpleicons.org/telegram/26A5E4"},
+    {"key": "x", "name": "X", "label": "منصة X", "image_url": "https://cdn.simpleicons.org/x/ffffff"},
+    {"key": "snapchat", "name": "Snapchat", "label": "سناب شات", "image_url": "https://cdn.simpleicons.org/snapchat/FFFC00"},
+    {"key": "linkedin", "name": "LinkedIn", "label": "لينكدإن", "image_url": "https://cdn.simpleicons.org/linkedin/0A66C2"},
+    {"key": "whatsapp", "name": "WhatsApp", "label": "واتساب", "image_url": "https://cdn.simpleicons.org/whatsapp/25D366"},
+    {"key": "discord", "name": "Discord", "label": "ديسكورد", "image_url": "https://cdn.simpleicons.org/discord/5865F2"},
+    {"key": "twitch", "name": "Twitch", "label": "تويتش", "image_url": "https://cdn.simpleicons.org/twitch/9146FF"},
+    {"key": "spotify", "name": "Spotify", "label": "سبوتيفاي", "image_url": "https://cdn.simpleicons.org/spotify/1ED760"},
+    {"key": "website", "name": "Website", "label": "موقع إلكتروني", "image_url": "https://cdn.simpleicons.org/googlechrome/4285F4"},
+]
+
+IMAGE_GALLERY = [
+    {"label": preset["label"], "url": preset["image_url"], "key": preset["key"]}
+    for preset in APPLICATION_PRESETS
+]
+
+def preset_for_service(service):
+    raw = str(service.get("platform") or service.get("cat") or "").strip().lower()
+    for preset in APPLICATION_PRESETS:
+        if raw == preset["key"] or raw == preset["name"].lower() or raw == preset["label"].lower():
+            return preset
+    return next((preset for preset in APPLICATION_PRESETS if preset["key"] in raw), None)
+
+def service_image(service):
+    return str(service.get("image_url") or (preset_for_service(service) or {}).get("image_url") or "").strip()
+
+def preset_options(selected=""):
+    return "".join(
+        f'<option value="{h(preset["key"])}" {"selected" if preset["key"] == selected else ""}>{h(preset["label"])}</option>'
+        for preset in APPLICATION_PRESETS
+    )
 
 def hash_pass(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -67,8 +106,9 @@ def load_db():
             "orders": [], 
             "announcement": "مرحباً بك في عالم الفخامة الرقمية!",
             "is_active": True, "default_language": "ar",
-            "topups": [], "coupons": [], "tickets": [],
-            "notifications": [], "audit_logs": [], "referral_percent": 5
+            "topups": [], "coupons": [], "tickets": [], "balance_logs": [],
+            "notifications": [], "audit_logs": [], "referral_percent": 5,
+            "category_images": {}
         }
         save_db(data)
         return data
@@ -84,7 +124,7 @@ def load_db():
             return {
                 "users": {}, "services": [], "orders": [], "topups": [],
                 "coupons": [], "tickets": [], "notifications": [],
-                "audit_logs": [], "announcement": "مرحباً بك في عالم الفخامة الرقمية!",
+                "audit_logs": [], "balance_logs": [], "announcement": "مرحباً بك في عالم الفخامة الرقمية!",
                 "is_active": True, "default_language": "ar", "referral_percent": 5
             }
 
@@ -97,6 +137,8 @@ def load_db():
     data.setdefault("tickets", [])
     data.setdefault("notifications", [])
     data.setdefault("audit_logs", [])
+    data.setdefault("balance_logs", [])
+    data.setdefault("category_images", {})
     data.setdefault("announcement", "مرحباً بك في عالم الفخامة الرقمية!")
     data.setdefault("is_active", True)
     data.setdefault("default_language", "ar")
@@ -111,6 +153,16 @@ def load_db():
             if key not in account:
                 account[key] = value
                 changed = True
+    for service in data["services"]:
+        if "platform" not in service:
+            service["platform"] = (preset_for_service(service) or {}).get("key", "")
+            changed = True
+        if "image_url" not in service:
+            service["image_url"] = ""
+            changed = True
+    if not isinstance(data.get("category_images"), dict):
+        data["category_images"] = {}
+        changed = True
     if changed:
         save_db(data)
     return data
@@ -159,75 +211,181 @@ def sync_api_order(api_url, api_key, remote_id):
     except Exception as e:
         return False, str(e)
 
+def clerk_api_get(path):
+    if not CLERK_SECRET_KEY:
+        return None
+    try:
+        request = urllib.request.Request(
+            f"https://api.clerk.com/v1{path}",
+            headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}", "Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(request, timeout=12) as response:
+            return json.loads(response.read().decode())
+    except Exception:
+        return None
+
+def bridge_clerk_session(db, session_id):
+    session = clerk_api_get(f"/sessions/{urllib.parse.quote(session_id, safe='')}")
+    if not session or session.get("status") != "active" or not session.get("user_id"):
+        return None
+    profile = clerk_api_get(f"/users/{urllib.parse.quote(session['user_id'], safe='')}")
+    if not profile:
+        return None
+    emails = profile.get("email_addresses", [])
+    email = next((item.get("email_address", "") for item in emails if item.get("id") == profile.get("primary_email_address_id")), "")
+    if not email and emails:
+        email = emails[0].get("email_address", "")
+    account_name = next(
+        (name for name, account in db.get("users", {}).items() if account.get("clerk_user_id") == profile.get("id")),
+        None
+    )
+    if not account_name and email:
+        account_name = next(
+            (name for name, account in db.get("users", {}).items() if account.get("email", "").lower() == email.lower()),
+            None
+        )
+    if not account_name:
+        base = profile.get("username") or (email.split("@")[0] if email else f"google_{str(profile.get('id', 'user'))[-8:]}")
+        base = "".join(char for char in str(base) if char.isalnum() or char in "_-")[:24] or "user"
+        account_name = base
+        suffix = 2
+        while account_name in db.get("users", {}):
+            account_name = f"{base}_{suffix}"
+            suffix += 1
+        db.setdefault("users", {})[account_name] = {
+            "pass": hash_pass(secrets.token_urlsafe(32)), "balance": 0.0, "is_admin": False,
+            "phone": "", "email": email, "lang": "ar", "auth_provider": "clerk_google",
+            "clerk_user_id": profile.get("id"), "referral_code": make_referral_code(account_name),
+            "referred_by": "", "referrals_earnings": 0.0, "created_at": now()
+        }
+    else:
+        db["users"][account_name]["clerk_user_id"] = profile.get("id")
+        db["users"][account_name]["auth_provider"] = "clerk_google"
+        if email:
+            db["users"][account_name]["email"] = email
+    audit(db, account_name, "clerk_login", "تسجيل دخول اجتماعي عبر Google")
+    save_db(db)
+    return account_name
+
 # --- [ 3. التصميم المتكامل (UI/UX) ] ---
 def get_master_style():
     return f"""
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#101b2d">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap');
-        :root {{ --accent: #f39c12; --glass: rgba(255, 255, 255, 0.1); --border: rgba(255, 255, 255, 0.15); }}
-        * {{ box-sizing: border-box; font-family: 'Cairo', sans-serif; transition: 0.3s; }}
-        body {{ 
-            margin: 0; background: linear-gradient(135deg, #0f2027, #203a43, #2c5364); 
-            background-attachment: fixed; color: #fff; direction: rtl; padding-bottom: 120px; min-height: 100vh;
+        :root {{
+            --bg: #0d1726; --bg-deep: #09111e; --panel: #142237; --panel-soft: #182a41;
+            --accent: #f6c85f; --accent-strong: #ef9f4b; --cyan: #6fd1d7; --green: #6dd6a0;
+            --danger: #ed7d86; --text: #f4f7fb; --muted: #94a7bd;
+            --border: rgba(190, 214, 237, .14); --glass: rgba(22, 39, 61, .84);
+            --shadow: 0 18px 50px rgba(2, 8, 18, .28);
         }}
-        .header {{ 
-            height: 75px; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-            display: flex; align-items: center; justify-content: space-between; 
-            padding: 0 20px; border-bottom: 1px solid var(--border); position: sticky; top:0; z-index:1000; 
+        * {{ box-sizing: border-box; font-family: 'Cairo', sans-serif; }}
+        html {{ background: var(--bg-deep); }}
+        body {{
+            margin: 0; background:
+                radial-gradient(circle at 12% 0%, rgba(111, 209, 215, .10), transparent 31rem),
+                radial-gradient(circle at 92% 8%, rgba(246, 200, 95, .10), transparent 28rem),
+                var(--bg); background-attachment: fixed; color: var(--text); direction: rtl;
+            padding: 0 0 128px; min-height: 100vh; line-height: 1.7;
         }}
-        .card {{ 
-            background: var(--glass); border: 1px solid var(--border); border-radius: 28px; 
-            padding: 22px; margin: 15px; backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        body::after {{ content:""; position:fixed; inset:0; pointer-events:none; opacity:.035;
+            background-image: linear-gradient(rgba(255,255,255,.5) 1px, transparent 1px);
+            background-size:100% 5px; z-index: -1; }}
+        a {{ color: inherit; }}
+        .header {{
+            min-height: 76px; background: rgba(9, 17, 30, .88); backdrop-filter: blur(18px);
+            display:flex; align-items:center; justify-content:space-between; gap:18px;
+            padding: 14px clamp(16px, 4vw, 52px); border-bottom:1px solid var(--border);
+            position:sticky; top:0; z-index:1000;
         }}
-        .settings-group {{ margin-bottom: 20px; }}
-        .settings-title {{ font-size: 14px; color: var(--accent); margin: 0 15px 10px; font-weight: bold; opacity: 0.8; }}
-        .settings-list {{ background: rgba(255,255,255,0.03); border-radius: 20px; overflow: hidden; border: 1px solid var(--border); margin: 0 15px; }}
-        .settings-item {{ 
-            display: flex; align-items: center; padding: 18px; text-decoration: none; 
-            color: #fff; border-bottom: 1px solid var(--border); 
+        .header a {{ text-decoration:none; }}
+        .card {{
+            width: min(1180px, calc(100% - 32px)); margin: 18px auto;
+            background: linear-gradient(145deg, rgba(26, 45, 70, .90), rgba(14, 28, 46, .88));
+            border:1px solid var(--border); border-radius:24px; padding:clamp(18px, 3vw, 30px);
+            box-shadow:var(--shadow); backdrop-filter:blur(16px);
         }}
-        .settings-item:last-child {{ border: none; }}
-        .settings-item:active {{ background: rgba(255,255,255,0.1); }}
-        .settings-item i {{ width: 35px; font-size: 20px; color: var(--accent); }}
-        .settings-item .text {{ flex: 1; font-size: 15px; font-weight: 500; }}
-        .settings-item .chevron {{ font-size: 12px; opacity: 0.3; }}
-        input, select, button {{ 
-            width: 100%; padding: 18px; margin-top: 15px; border-radius: 20px; 
-            border: 1px solid var(--border); background: rgba(255, 255, 255, 0.05); color: #fff; outline: none;
-            font-size: 16px; font-weight: bold;
+        .page-wrap {{ width:min(1180px, calc(100% - 32px)); margin:auto; }}
+        .eyebrow, .settings-title {{ color:var(--accent); font-size:12px; letter-spacing:.3px; font-weight:900; }}
+        .muted, small {{ color:var(--muted); }}
+        .settings-group {{ width:min(760px, 100%); margin:24px auto; }}
+        .settings-title {{ margin:0 4px 9px; }}
+        .settings-list {{ background:rgba(8, 17, 30, .34); border-radius:18px; overflow:hidden; border:1px solid var(--border); }}
+        .settings-item {{ display:flex; align-items:center; gap:12px; min-height:64px; padding:15px 18px; text-decoration:none; color:var(--text); border-bottom:1px solid var(--border); }}
+        .settings-item:last-child {{ border:0; }}
+        .settings-item:hover {{ background:rgba(111, 209, 215, .07); }}
+        .settings-item > i:first-child {{ width:24px; color:var(--accent); text-align:center; }}
+        .settings-item .text {{ flex:1; font-size:14px; font-weight:700; }}
+        .settings-item .chevron {{ font-size:11px; color:var(--muted); }}
+        input, select, textarea, button {{ font:inherit; }}
+        input, select, textarea {{
+            width:100%; padding:13px 15px; margin-top:11px; border-radius:14px;
+            border:1px solid var(--border); background:rgba(4, 12, 23, .38); color:var(--text);
+            outline:none; font-size:14px;
         }}
-        .btn-send {{ 
-            background: linear-gradient(45deg, var(--accent), #e67e22); 
-            color: #000; font-weight: 900; border: none; cursor: pointer;
-            box-shadow: 0 6px 20px rgba(243, 156, 18, 0.4);
-        }}
+        input::placeholder, textarea::placeholder {{ color:#71859d; }}
+        input:focus, select:focus, textarea:focus {{ border-color:rgba(246, 200, 95, .7); box-shadow:0 0 0 3px rgba(246, 200, 95, .09); }}
+        select option {{ background:var(--panel); color:var(--text); }}
+        button, .btn-send {{ min-height:46px; padding:11px 17px; border-radius:13px; cursor:pointer; }}
+        .btn-send {{ background:linear-gradient(120deg, var(--accent), var(--accent-strong)); color:#17202b; font-weight:900; border:0; box-shadow:0 8px 20px rgba(239,159,75,.18); }}
+        .btn-send:hover {{ transform:translateY(-1px); filter:brightness(1.04); }}
+        .btn-quiet {{ background:rgba(111, 209, 215, .08); color:var(--cyan); border:1px solid rgba(111,209,215,.25); text-decoration:none; }}
         .floating-tg {{
-            position: fixed; bottom: 125px; left: 25px; width: 65px; height: 65px;
-            background: linear-gradient(45deg, #0088cc, #00aaff); border-radius: 50%; 
-            display: flex; align-items: center; justify-content: center; color: white; 
-            font-size: 32px; z-index: 3000; box-shadow: 0 8px 25px rgba(0,136,204,0.5); 
-            text-decoration: none; animation: pulse 2s infinite;
+            position:fixed; bottom:116px; left:22px; width:48px; height:48px; background:var(--cyan);
+            border-radius:15px; display:flex; align-items:center; justify-content:center; color:#0d1726;
+            font-size:21px; z-index:3000; box-shadow:0 8px 25px rgba(111,209,215,.2); text-decoration:none;
         }}
-        @keyframes pulse {{ 0% {{ transform: scale(1); }} 50% {{ transform: scale(1.08); }} 100% {{ transform: scale(1); }} }}
-        .bottom-nav {{ 
-            position: fixed; bottom: 25px; left: 20px; right: 20px; 
-            height: 85px; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(25px);
-            display: flex; justify-content: space-around; align-items: center; 
-            border-radius: 35px; border: 1px solid var(--border); z-index: 2000;
+        .bottom-nav {{
+            position:fixed; bottom:15px; left:50%; transform:translateX(-50%); width:min(620px, calc(100% - 24px));
+            min-height:68px; padding:7px; background:rgba(9,17,30,.92); backdrop-filter:blur(20px);
+            display:flex; justify-content:space-around; align-items:center; border-radius:20px;
+            border:1px solid var(--border); z-index:2000; box-shadow:0 12px 30px rgba(0,0,0,.28);
         }}
-        .nav-item {{ color: rgba(255,255,255,0.4); text-decoration: none; font-size: 13px; text-align: center; flex:1; }}
-        .nav-item.active {{ color: var(--accent); text-shadow: 0 0 10px var(--accent); }}
-        .nav-item i {{ font-size: 28px; display: block; margin-bottom: 5px; }}
-        .stats-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0 15px; }}
-        .stat-item {{ background: var(--glass); border: 1px solid var(--border); border-radius: 20px; padding: 15px; text-align: center; }}
-        .stat-item i {{ color: var(--accent); display: block; margin-bottom: 8px; font-size: 22px; }}
-        .stat-label {{ font-size: 11px; color: rgba(255,255,255,0.6); }}
-        .stat-value {{ font-size: 16px; font-weight: bold; }}
-        .badge {{ background: var(--accent); color: #000; padding: 4px 12px; border-radius: 12px; font-weight: bold; font-size: 13px; }}
-        .order-row {{ border-bottom: 1px solid var(--border); padding: 18px 0; display: flex; justify-content: space-between; align-items: center; }}
+        .nav-item {{ color:var(--muted); text-decoration:none; font-size:10px; text-align:center; flex:1; padding:6px 3px; border-radius:13px; }}
+        .nav-item.active, .nav-item:hover {{ color:var(--accent); background:rgba(246,200,95,.08); }}
+        .nav-item i {{ font-size:18px; display:block; margin-bottom:2px; }}
+        .stats-grid {{ width:min(1180px, calc(100% - 32px)); margin:18px auto; display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }}
+        .stat-item {{ background:rgba(20, 34, 55, .82); border:1px solid var(--border); border-radius:18px; padding:17px 12px; text-align:center; }}
+        .stat-item i {{ color:var(--accent); display:block; margin-bottom:7px; font-size:18px; }}
+        .stat-label {{ font-size:11px; color:var(--muted); }}
+        .stat-value {{ font-size:17px; font-weight:900; }}
+        .badge, .pill {{ display:inline-flex; align-items:center; gap:5px; background:rgba(246,200,95,.14); color:var(--accent); padding:4px 10px; border-radius:99px; font-weight:900; font-size:11px; }}
+        .order-row {{ border-bottom:1px solid var(--border); padding:16px 0; display:flex; justify-content:space-between; align-items:center; gap:15px; }}
+        .order-row:last-child {{ border-bottom:0; }}
+        .notice {{ padding:12px 14px; border-radius:14px; border:1px solid rgba(109,214,160,.25); background:rgba(109,214,160,.08); color:var(--green); }}
+        .section-head {{ display:flex; justify-content:space-between; align-items:end; gap:14px; margin-bottom:16px; }}
+        .section-head h2, .section-head h3 {{ margin:0; }}
+        .empty-state {{ text-align:center; color:var(--muted); padding:36px 16px; border:1px dashed var(--border); border-radius:16px; }}
+        .table-wrap {{ overflow:auto; }}
+        .inline-note {{ display:flex; align-items:center; gap:9px; padding:11px 13px; border-radius:14px; color:var(--muted); background:rgba(111,209,215,.07); border:1px solid rgba(111,209,215,.16); font-size:11px; }}
+        .inline-note i {{ color:var(--cyan); }}
+        .quick-links {{ display:grid; grid-template-columns:repeat(2,1fr); gap:9px; margin-top:14px; }}
+        .quick-links a {{ text-decoration:none; padding:12px 10px; border:1px solid var(--border); border-radius:14px; color:var(--muted); background:rgba(255,255,255,.025); font-size:11px; font-weight:800; text-align:center; }}
+        .quick-links a:hover {{ color:var(--accent); border-color:rgba(246,200,95,.35); }}
+        .gallery-overlay {{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; padding:16px; background:rgba(3,8,16,.82); z-index:8000; }}
+        .gallery-overlay.open {{ display:flex; }}
+        .gallery-dialog {{ width:min(620px,100%); max-height:min(760px,90vh); overflow:auto; padding:22px; border:1px solid var(--border); border-radius:24px; background:linear-gradient(145deg,#1b304b,#0e1c2f); box-shadow:0 26px 90px rgba(0,0,0,.55); }}
+        .gallery-head {{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }}
+        .gallery-head h3 {{ margin:0; }}
+        .gallery-close {{ width:38px; min-height:38px; padding:0; border:1px solid var(--border); background:rgba(255,255,255,.05); color:var(--text); }}
+        .gallery-grid {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(108px,1fr)); gap:10px; }}
+        .gallery-item {{ min-height:112px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; border:1px solid var(--border); border-radius:16px; background:rgba(4,12,23,.34); color:var(--text); cursor:pointer; padding:10px; }}
+        .gallery-item:hover {{ border-color:var(--accent); background:rgba(246,200,95,.09); transform:translateY(-2px); }}
+        .gallery-item img {{ width:52px; height:52px; border-radius:14px; object-fit:cover; background:var(--panel-soft); }}
+        .gallery-item span {{ font-size:10px; color:var(--muted); text-align:center; }}
+        .gallery-custom {{ display:flex; gap:8px; margin-top:14px; }}
+        .gallery-custom input {{ margin:0; flex:1; }}
+        .gallery-custom button {{ width:auto; white-space:nowrap; }}
+        .preview-image {{ width:46px; height:46px; border-radius:13px; object-fit:cover; background:var(--panel-soft); border:1px solid var(--border); }}
+        @media (min-width: 760px) {{ .card {{ padding:28px 34px; }} .settings-item {{ min-height:70px; }} }}
+        @media (max-width: 600px) {{
+            .header {{ min-height:68px; padding:12px 16px; }} .stats-grid {{ grid-template-columns:1fr 1fr; }}
+            .stats-grid .stat-item:last-child {{ grid-column:1/-1; }} .card {{ border-radius:19px; }}
+            .order-row {{ align-items:flex-start; }} .floating-tg {{ bottom:96px; left:14px; }}
+        }}
     </style>
     <a href="https://t.me/{TELEGRAM_USER}" class="floating-tg" target="_blank"><i class="fab fa-telegram-plane"></i></a>
     """
@@ -300,6 +458,11 @@ def get_welcome_page(error=""):
                 background:linear-gradient(110deg,var(--gold),var(--orange)); box-shadow:0 13px 30px rgba(255,138,61,.22); margin-top:4px; }}
             .action:hover {{ transform:translateY(-2px); box-shadow:0 16px 35px rgba(255,138,61,.32); }}
             .forgot {{ display:block; color:var(--gold); text-align:left; font-size:11px; text-decoration:none; margin:3px 2px 19px; }}
+            .social-divider {{ display:flex;align-items:center;gap:10px;color:#63728a;font-size:10px;margin:18px 0 12px; }}
+            .social-divider::before,.social-divider::after {{ content:"";height:1px;background:rgba(255,255,255,.1);flex:1; }}
+            .google-btn {{ width:100%;height:50px;border:1px solid rgba(255,255,255,.13);border-radius:15px;background:rgba(255,255,255,.045);color:#eef4ff;cursor:pointer;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:10px; }}
+            .google-btn:hover {{ background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.24);transform:translateY(-1px); }}
+            .google-icon {{ width:19px;height:19px;border-radius:50%;background:#fff;color:#4285f4;display:grid;place-items:center;font-size:12px;font-weight:900;font-family:Arial; }}
             .error {{ color:var(--danger); background:rgba(255,107,122,.09); border:1px solid rgba(255,107,122,.2); padding:10px 12px; border-radius:12px; font-size:11px; margin-bottom:15px; }}
             .switch {{ color:var(--muted); text-align:center; font-size:11px; margin-top:18px; }} .switch button {{ color:var(--gold); background:none; border:0; cursor:pointer; font-weight:800; }}
             .strength {{ display:flex; align-items:center; gap:8px; margin:-6px 2px 12px; color:var(--muted); font-size:10px; }}
@@ -345,6 +508,8 @@ def get_welcome_page(error=""):
                             <div class="field"><i class="fas fa-lock"></i><input id="login-pass" type="password" name="pass" placeholder="كلمة المرور" autocomplete="current-password" required><button type="button" class="password-toggle" aria-label="إظهار كلمة المرور" onclick="togglePassword('login-pass', this)"><i class="fas fa-eye"></i></button></div>
                             <a class="forgot" href="/forgot_password">نسيت كلمة المرور؟</a>
                             <button class="action" type="submit"><i class="fas fa-arrow-left"></i> دخول آمن إلى حسابي</button>
+                            <div class="social-divider"><span>أو تابع بسرعة</span></div>
+                            <button type="button" class="google-btn" onclick="signInWithGoogle()"><span class="google-icon"><i class="fab fa-google"></i></span><span>المتابعة الآمنة باستخدام Google</span><i class="fas fa-arrow-left" style="margin-right:auto;color:#8fa0b8;font-size:11px;"></i></button>
                         </form>
                         <div class="switch">جديد هنا؟ <button type="button" onclick="showAuth('register')">أنشئ حسابك خلال دقيقة</button></div>
                     </div>
@@ -360,7 +525,7 @@ def get_welcome_page(error=""):
                         <div class="switch">لديك حساب بالفعل؟ <button type="button" onclick="showAuth('login')">سجّل دخولك</button></div>
                     </div>
                     <div class="terms">بالمتابعة، أنت توافق على <a href="/terms">شروط الاستخدام</a> وسياسة الخصوصية الخاصة بالمنصة.</div>
-                    <div class="trust"><i class="fas fa-circle-check"></i> لا نطلب كلمة مرور حساباتك الاجتماعية · الدفع الآمن قريباً</div>
+                    <div class="trust"><i class="fas fa-circle-check"></i> لا نطلب كلمة مرور حساباتك الاجتماعية · الرصيد يضاف يدوياً من المالك</div>
                 </div>
             </section>
         </main>
@@ -386,6 +551,52 @@ def get_welcome_page(error=""):
                 const widths = ['0%', '25%', '50%', '75%', '100%'], colors = ['#273348','#ff6b7a','#ffb454','#8bdc91','#61e6a1'];
                 fill.style.width = widths[score]; fill.style.background = colors[score];
                 label.textContent = score < 2 ? 'كلمة مرور ضعيفة' : (score < 4 ? 'كلمة مرور جيدة' : 'كلمة مرور قوية');
+            }}
+            let clerkReady = null;
+            function loadClerk() {{
+                if (!{json.dumps(bool(CLERK_PUBLISHABLE_KEY))}) return Promise.reject(new Error('clerk_not_configured'));
+                if (window.Clerk) return Promise.resolve(window.Clerk);
+                if (clerkReady) return clerkReady;
+                clerkReady = new Promise((resolve, reject) => {{
+                    const script = document.createElement('script');
+                    script.src = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
+                    script.async = true;
+                    script.onload = async () => {{
+                        try {{
+                            window.Clerk = new Clerk({json.dumps(CLERK_PUBLISHABLE_KEY)});
+                            await window.Clerk.load();
+                            resolve(window.Clerk);
+                        }} catch (error) {{ reject(error); }}
+                    }};
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                }});
+                return clerkReady;
+            }}
+            async function signInWithGoogle() {{
+                const button = document.querySelector('.google-btn');
+                const original = button.innerHTML;
+                button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري فتح Google...';
+                try {{
+                    const clerk = await loadClerk();
+                    await clerk.openSignIn({{
+                        oauthFlow: 'popup',
+                        appearance: {{
+                            variables: {{ colorPrimary: '#f39c12', colorBackground: '#0c1526', colorForeground: '#fff', fontFamily: 'Cairo' }},
+                            elements: {{ card: 'rounded-3xl', formButtonPrimary: 'bg-orange-400 text-black', socialButtonsBlockButton: 'rounded-xl' }}
+                        }}
+                    }});
+                    if (clerk.session) {{
+                        const response = await fetch('/clerk_bridge?session_id=' + encodeURIComponent(clerk.session.id));
+                        if (response.redirected) window.location.href = response.url;
+                        else window.location.reload();
+                    }} else {{
+                        button.disabled = false; button.innerHTML = original;
+                    }}
+                }} catch (error) {{
+                    button.disabled = false; button.innerHTML = original;
+                    alert(error.message === 'clerk_not_configured' ? 'تسجيل Google غير مهيأ بعد من إعدادات المصادقة.' : 'تعذر فتح تسجيل Google، حاول مرة أخرى.');
+                }}
             }}
         </script>
     </body>
@@ -427,7 +638,7 @@ def get_orders_page(db, user):
             <p id="orders-empty" style="display:none;text-align:center;opacity:.55;">لا توجد نتائج مطابقة</p>
             <div id="orders-list">{orders_html}</div>
         </div>
-        <div class="bottom-nav"><a href="/" class="nav-item"><i class="fas fa-home"></i>الرئيسية</a><a href="/topup" class="nav-item"><i class="fas fa-wallet"></i>الرصيد</a><a href="/settings" class="nav-item"><i class="fas fa-cog"></i>الإعدادات</a></div>
+        <div class="bottom-nav"><a href="/" class="nav-item"><i class="fas fa-home"></i>الرئيسية</a><a href="/order_history" class="nav-item"><i class="fas fa-history"></i>الطلبات</a><a href="/settings" class="nav-item"><i class="fas fa-cog"></i>الإعدادات</a></div>
         <script>
         function filterOrders() {{
             const query = document.getElementById('order-search').value.toLowerCase();
@@ -458,7 +669,7 @@ def get_settings_page(db, user):
             <div class="settings-title">الحساب والمالية</div>
             <div class="settings-list">
                 <a href="/order_history" class="settings-item"><i class="fas fa-history"></i><span class="text">سجل طلباتي</span><i class="fas fa-chevron-left chevron"></i></a>
-                <a href="/topup" class="settings-item"><i class="fas fa-wallet"></i><span class="text">شحن الرصيد</span><i class="fas fa-chevron-left chevron"></i></a>
+                <div class="settings-item" style="cursor:default;"><i class="fas fa-wallet"></i><span class="text">الرصيد يُدار يدوياً من المالك</span><span class="badge">يدوي</span></div>
                 <a href="/referrals" class="settings-item"><i class="fas fa-user-plus"></i><span class="text">الإحالات والأرباح</span><i class="fas fa-chevron-left chevron"></i></a>
                 <a href="/notifications" class="settings-item"><i class="fas fa-bell"></i><span class="text">الإشعارات ({unread})</span><i class="fas fa-chevron-left chevron"></i></a>
                 <a href="/change_password" class="settings-item"><i class="fas fa-lock"></i><span class="text">تغيير كلمة المرور</span><i class="fas fa-chevron-left chevron"></i></a>
@@ -471,7 +682,7 @@ def get_settings_page(db, user):
             <a href="/terms" class="settings-item"><i class="fas fa-info-circle"></i><span class="text">شروط الاستخدام</span><i class="fas fa-chevron-left chevron"></i></a>
         </div></div>
         <div class="settings-group" style="margin-bottom:120px;"><div class="settings-list"><a href="/logout" class="settings-item" style="color:#ff4757;"><i class="fas fa-sign-out-alt" style="color:#ff4757;"></i><span class="text">تسجيل الخروج</span></a></div></div>
-        <div class="bottom-nav"><a href="/" class="nav-item"><i class="fas fa-home"></i>الرئيسية</a><a href="/topup" class="nav-item"><i class="fas fa-wallet"></i>الرصيد</a><a href="/support" class="nav-item"><i class="fas fa-headset"></i>الدعم</a></div>
+        <div class="bottom-nav"><a href="/" class="nav-item"><i class="fas fa-home"></i>الرئيسية</a><a href="/order_history" class="nav-item"><i class="fas fa-history"></i>الطلبات</a><a href="/support" class="nav-item"><i class="fas fa-headset"></i>الدعم</a></div>
     </body></html>"""
 
 def get_topup_page(db, user, message=""):
@@ -519,7 +730,7 @@ def get_referrals_page(db, user):
     return f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">{get_master_style()}</head><body>
     <div class="header"><b style="color:var(--accent);font-size:22px;">برنامج الإحالة</b><a href="/" style="color:white;font-size:24px;"><i class="fas fa-home"></i></a></div>
     <div class="card" style="text-align:center;"><i class="fas fa-users" style="font-size:48px;color:var(--accent);"></i><h2>ادعُ أصدقاءك واربح</h2>
-      <p style="opacity:.7;">تحصل على نسبة من أول شحن للأعضاء عن طريقك.</p>
+      <p style="opacity:.7;">تحصل على عمولة إحالة عند اعتماد نشاط الأعضاء من قبل المالك.</p>
        <div style="display:flex;gap:8px;align-items:stretch;"><div id="ref-code" style="flex:1;padding:15px;background:rgba(243,156,18,.12);border:1px dashed var(--accent);border-radius:16px;font-size:20px;font-weight:bold;">{h(u.get('referral_code'))}</div><button onclick="copyReferral()" style="width:54px;margin:0;border-radius:16px;background:var(--accent);color:#000;border:0;cursor:pointer;" title="نسخ الكود"><i class="fas fa-copy"></i></button></div>
        <p id="copy-state" style="height:18px;color:#2ecc71;font-size:12px;margin:8px 0 0;"></p>
       <p>إجمالي أرباح الإحالات: <b style="color:#2ecc71;">{money(earnings)}</b></p><p>عدد الإحالات: <b>{len(referred)}</b></p>
@@ -560,8 +771,14 @@ def get_terms_page():
 
 def admin_layout(title, content):
     return f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">{get_master_style()}
-    <style>.admin-wrap{{max-width:900px;margin:0 auto}}.admin-table{{width:100%;border-collapse:collapse}}.admin-table th,.admin-table td{{padding:12px;border-bottom:1px solid var(--border);text-align:right}}.admin-table th{{color:var(--accent)}}.pill{{display:inline-block;padding:4px 10px;border-radius:12px;background:rgba(243,156,18,.18);color:var(--accent);font-size:12px}}</style></head><body>
-    <div class="admin-wrap"><div class="header"><b style="color:var(--accent);font-size:22px;">{h(title)}</b><a href="/admin_panel" style="color:white;font-size:24px;"><i class="fas fa-arrow-right"></i></a></div>{content}</div></body></html>"""
+    <style>
+      .admin-wrap{{width:min(1060px,calc(100% - 32px));margin:auto}} .admin-wrap > .header{{margin:0 -16px 20px;padding-left:0;padding-right:0}}
+      .admin-table{{width:100%;border-collapse:collapse;min-width:620px}} .admin-table th,.admin-table td{{padding:13px 10px;border-bottom:1px solid var(--border);text-align:right;font-size:12px}}
+      .admin-table th{{color:var(--accent);font-size:11px}} .admin-table tr:hover td{{background:rgba(111,209,215,.04)}}
+      .pill{{display:inline-flex;padding:5px 10px;border-radius:99px;background:rgba(246,200,95,.14);color:var(--accent);font-size:11px;text-decoration:none;font-weight:900}}
+      .admin-wrap .card h3{{margin-top:0}} @media(max-width:650px){{.admin-wrap > .header{{margin-left:0;margin-right:0}}}}
+    </style></head><body>
+    <div class="admin-wrap"><div class="header"><div><div class="eyebrow">مساحة المالك</div><b style="font-size:22px;">{h(title)}</b></div><a href="/admin_panel" style="font-size:20px;" aria-label="العودة"><i class="fas fa-arrow-right"></i></a></div>{content}</div></body></html>"""
 
 def get_admin_reports_page(db):
     orders = db.get("orders", [])
@@ -611,7 +828,7 @@ def get_admin_page(db):
     total_profit = sum(float(o.get('cost', 0)) for o in orders)
     total_balances = sum(float(u.get('balance', 0)) for u in users.values())
     is_active = db.get("is_active", True)
-    status_text = "✅ الموقع متصل" if is_active else "❌ وضع الصيانة"
+    status_text = "الموقع متصل" if is_active else "وضع الصيانة"
     btn_color = "#2ecc71" if not is_active else "#e74c3c"
     pending_topups = len([t for t in db.get("topups", []) if t.get("status") == "قيد المراجعة"])
     open_tickets = len([t for t in db.get("tickets", []) if t.get("status") != "مغلقة"])
@@ -648,6 +865,7 @@ def get_admin_page(db):
                 <input type="hidden" name="type" value="add_full_svc">
                 <input name="n" placeholder="اسم الخدمة" required>
                 <input name="c" placeholder="الفئة / القسم" required>
+                <input name="img" type="url" placeholder="رابط صورة الفئة أو الخدمة (اختياري)">
                 <input type="number" step="0.01" name="p" placeholder="السعر لكل 1000" required>
                 <input name="sid" placeholder="ID الخدمة عند المزود" required>
                 <input name="url" placeholder="رابط API المزود" required>
@@ -657,18 +875,24 @@ def get_admin_page(db):
         </div>
         <div class="card">
             <h4><i class="fas fa-users-cog"></i> إدارة أرصدة الأعضاء</h4>
-            <input type="text" id="userInput" class="search-box" onkeyup="searchUsers()" placeholder="🔍 ابحث عن اسم المستخدم...">
+            <input type="text" id="userInput" class="search-box" onkeyup="searchUsers()" placeholder="ابحث عن اسم المستخدم...">
             <div id="userList" style="max-height: 250px; overflow-y: auto;">
                 {"".join([f'<div class="user-row" data-name="{n}"><span>{n}<br><small>${u["balance"]:.2f}</small></span><form action="/admin_action" style="display:flex; gap:5px;"><input type="hidden" name="type" value="adj_bal"><input type="hidden" name="u" value="{n}"><input type="number" name="a" placeholder="المبلغ" style="width:70px; margin:0; padding:5px;"><button name="mode" value="plus" style="width:35px; background:#2ecc71; margin:0;">+</button><button name="mode" value="minus" style="width:35px; background:#e74c3c; margin:0;">-</button></form></div>' for n, u in users.items()])}
             </div>
         </div>
         <div class="card">
         <div class="card" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 20px; padding: 20px; margin-top: 15px;">
-            <h4 style="color: #f39c12; margin-bottom: 15px;"><i class="fas fa-trash-alt"></i> حذف الخدمات</h4>
+            <h4 style="color: #f39c12; margin-bottom: 15px;"><i class="fas fa-images"></i> إدارة صور الخدمات</h4>
             <div style="max-height: 250px; overflow-y: auto;">
                 {"".join([f'''
-                <div class="user-row" style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.03); background: rgba(0,0,0,0.2); margin-bottom: 8px; border-radius: 12px;">
-                    <span style="color: #fff; font-size: 14px;">{s['name']}</span>
+                 <div class="user-row" style="display: flex; gap:10px; align-items: center; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.03); background: rgba(0,0,0,0.2); margin-bottom: 8px; border-radius: 12px;">
+                     <img src="{h(s.get('image_url', ''))}" onerror="this.style.display='none'" style="width:42px;height:42px;object-fit:cover;border-radius:12px;background:#263247;">
+                     <span style="color: #fff; font-size: 14px; flex:1;">{h(s['name'])}<br><small style="opacity:.55;">{h(s.get('cat'))}</small></span>
+                     <form action="/admin_action" method="GET" style="display:flex;gap:5px;align-items:center;">
+                       <input type="hidden" name="type" value="update_svc_image"><input type="hidden" name="id" value="{h(s['id'])}">
+                       <input type="url" name="img" value="{h(s.get('image_url', ''))}" placeholder="رابط الصورة" style="width:180px;margin:0;padding:7px;">
+                       <button style="width:auto;margin:0;padding:8px 10px;background:#2ecc71;color:#07101f;font-weight:bold;">حفظ</button>
+                     </form>
                     <a href="/admin_action?type=del_svc&id={s['id']}" 
                        onclick="return confirm('هل أنت متأكد من الحذف؟')" 
                        style="color: #ff4757; text-decoration: none; font-weight: bold; font-size: 12px; border: 1px solid #ff4757; padding: 5px 10px; border-radius: 8px;">
@@ -683,7 +907,7 @@ def get_admin_page(db):
            <h4><i class="fas fa-toolbox"></i> مركز الإدارة</h4>
            <div class="grid">
              <a class="btn-action" style="text-decoration:none;text-align:center;" href="/admin_reports">التقارير</a>
-             <a class="btn-action" style="text-decoration:none;text-align:center;" href="/admin_topups">الشحن ({pending_topups})</a>
+             <a class="btn-action" style="text-decoration:none;text-align:center;" href="#balances">إدارة الأرصدة</a>
              <a class="btn-action" style="text-decoration:none;text-align:center;" href="/admin_coupons">الكوبونات</a>
              <a class="btn-action" style="text-decoration:none;text-align:center;" href="/admin_tickets">التذاكر ({open_tickets})</a>
              <a class="btn-action" style="text-decoration:none;text-align:center;" href="/admin_action?type=sync_orders">تحديث الطلبات</a>
@@ -707,13 +931,181 @@ def get_admin_page(db):
     """
 
 
+def get_admin_page_v2(db):
+    """واجهة المالك: تركّز على صحة الحسابات، الخدمات، والصور دون كشف أسرار المزود."""
+    users, orders, services = db.get("users", {}), db.get("orders", []), db.get("services", [])
+    total_profit = sum(float(o.get("cost", 0)) for o in orders)
+    total_balances = sum(float(account.get("balance", 0)) for account in users.values())
+    open_tickets = len([t for t in db.get("tickets", []) if t.get("status") != "مغلقة"])
+    active = db.get("is_active", True)
+    status_label = "الموقع يعمل" if active else "وضع الصيانة"
+    status_class = "online" if active else "offline"
+    category_images = db.get("category_images", {})
+    category_names = sorted({str(service.get("cat", "عام")) for service in services if service.get("cat", "عام")})
+    existing_images = []
+    for service in services:
+        image = str(service.get("image_url", "")).strip()
+        if image and image not in existing_images:
+            existing_images.append(image)
+    for image in category_images.values():
+        image = str(image).strip()
+        if image and image not in existing_images:
+            existing_images.append(image)
+    gallery_images = IMAGE_GALLERY + [
+        {"label": "صورة مستخدمة", "url": image, "key": f"saved-{index}"}
+        for index, image in enumerate(existing_images)
+    ]
+    preset_options = "".join(f'<option value="{h(item["url"])}">{h(item["label"])}</option>' for item in IMAGE_GALLERY)
+    existing_options = "".join(f'<option value="{h(url)}">صورة مستخدمة · {h(url[:38])}</option>' for url in existing_images)
+    category_rows = ""
+    for cat in category_names:
+        current_image = str(category_images.get(cat, "")).strip()
+        fallback = next((str(service.get("image_url", "")).strip() for service in services if service.get("cat", "عام") == cat and service.get("image_url")), "")
+        shown_image = current_image or fallback
+        preview = f'<img class="preview-image" src="{h(shown_image)}" alt="" onerror="this.style.display=\'none\'">' if shown_image else '<span class="service-thumb"><i class="fas fa-layer-group"></i></span>'
+        category_rows += f"""<div class="category-admin-row">
+            {preview}<div class="category-admin-info"><b>{h(cat)}</b><small>الصورة التي تظهر في بداية الكتالوج</small></div>
+            <form action="/admin_action" method="GET" class="image-form"><input type="hidden" name="type" value="update_cat_image"><input type="hidden" name="cat" value="{h(cat)}">
+              <input id="cat-image-{h(cat)}" type="url" name="img" value="{h(current_image)}" placeholder="اختر صورة الفئة"><button type="button" class="gallery-trigger" onclick="openGallery('cat-image-{h(cat)}')"><i class="fas fa-images"></i> المعرض</button><button class="mini-save" type="submit">حفظ</button>
+            </form>
+        </div>"""
+    service_rows = ""
+    for s in services:
+        image_url = str(s.get("image_url", "")).strip()
+        thumb = f'<img src="{h(image_url)}" alt="" onerror="this.style.display=\'none\'">' if image_url else '<i class="fas fa-layer-group"></i>'
+        service_rows += f"""<article class="service-row">
+            <div class="service-thumb">{thumb}</div>
+            <div class="service-info"><b>{h(s.get("name"))}</b><span>{h(s.get("cat", "عام"))} · {money(s.get("price"))} لكل 1000</span></div>
+            <div class="service-actions">
+              <form action="/admin_action" method="GET" class="image-form">
+                <input type="hidden" name="type" value="update_svc_image"><input type="hidden" name="id" value="{h(s.get("id"))}">
+                <input id="svc-image-{h(s.get("id"))}" type="url" name="img" value="{h(image_url)}" placeholder="اختر صورة الخدمة" aria-label="رابط صورة الخدمة">
+                <button type="button" class="gallery-trigger" onclick="openGallery('svc-image-{h(s.get("id"))}')"><i class="fas fa-images"></i> المعرض</button><button class="mini-save" type="submit">حفظ</button>
+              </form>
+              <a class="delete-link" href="/admin_action?type=del_svc&id={h(s.get("id"))}" onclick="return confirm('هل تريد حذف هذه الخدمة؟')">حذف</a>
+            </div>
+        </article>"""
+    if not service_rows:
+        service_rows = '<div class="empty-state">لا توجد خدمات بعد. أضف أول خدمة من النموذج أدناه.</div>'
+    user_rows = "".join(
+        f"""<div class="balance-row" data-name="{h(name)}"><div><b>{h(name)}</b><small>الرصيد الحالي: {money(account.get("balance"))}</small></div>
+        <form action="/admin_action" method="GET" class="balance-form"><input type="hidden" name="type" value="adj_bal"><input type="hidden" name="u" value="{h(name)}"><input type="number" step="0.01" min="0" name="a" placeholder="المبلغ" required><input name="note" placeholder="سبب مختصر" aria-label="سبب تعديل الرصيد"><button name="mode" value="plus" class="plus">إضافة</button><button name="mode" value="minus" class="minus">خصم</button></form></div>"""
+        for name, account in users.items()
+    )
+    recent_balance_logs = "".join(
+        f"""<div class="balance-log"><div><b>{h(item.get("user"))}</b><small>{h(item.get("note") or "تعديل يدوي")}</small></div><strong class="{'plus-text' if float(item.get('delta', 0)) >= 0 else 'minus-text'}">{'+' if float(item.get('delta', 0)) >= 0 else ''}{money(item.get('delta'))}</strong><small>{h(item.get('created_at'))}</small></div>"""
+        for item in reversed(db.get("balance_logs", [])[-8:])
+    ) or '<div class="empty-state">ستظهر هنا آخر تعديلات الرصيد.</div>'
+    return f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">{get_master_style()}
+    <style>
+      .admin-shell {{ width:min(1260px,calc(100% - 32px)); margin:auto; }}
+      .admin-hero {{ display:flex; align-items:end; justify-content:space-between; gap:20px; padding:34px 0 18px; }}
+      .admin-hero h1 {{ margin:0; font-size:clamp(25px,4vw,42px); line-height:1.2; }} .admin-hero p {{ color:var(--muted); margin:7px 0 0; font-size:13px; }}
+      .admin-status {{ padding:10px 13px; border-radius:13px; border:1px solid var(--border); font-size:12px; font-weight:900; white-space:nowrap; }}
+      .admin-status.online {{ color:var(--green); background:rgba(109,214,160,.08); }} .admin-status.offline {{ color:var(--danger); background:rgba(237,125,134,.08); }}
+      .admin-stats {{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:8px 0 22px; }}
+      .admin-stat {{ padding:18px; border-radius:18px; background:var(--glass); border:1px solid var(--border); }}
+      .admin-stat i {{ color:var(--accent); font-size:18px; }} .admin-stat strong {{ display:block; margin-top:10px; font-size:21px; }} .admin-stat span {{ color:var(--muted); font-size:11px; }}
+      .admin-grid {{ display:grid; grid-template-columns:minmax(0,1.1fr) minmax(320px,.9fr); gap:18px; align-items:start; }}
+      .admin-card {{ margin:0 0 18px; }} .admin-card h2 {{ margin:0; font-size:18px; }} .admin-card .lead {{ color:var(--muted); margin:4px 0 18px; font-size:12px; }}
+      .service-row {{ display:grid; grid-template-columns:48px minmax(120px,1fr) minmax(260px,1.4fr); gap:12px; align-items:center; padding:13px 0; border-bottom:1px solid var(--border); }}
+      .service-row:last-child {{ border:0; }} .service-thumb {{ width:46px; height:46px; display:grid; place-items:center; overflow:hidden; border-radius:13px; background:var(--panel-soft); color:var(--cyan); }}
+      .service-thumb img {{ width:100%; height:100%; object-fit:cover; }} .service-info b, .service-info span {{ display:block; }} .service-info span {{ color:var(--muted); font-size:10px; margin-top:2px; }}
+       .service-actions {{ display:flex; align-items:center; gap:7px; }} .image-form {{ display:flex; gap:6px; flex:1; }} .image-form input {{ margin:0; padding:8px 9px; min-width:0; font-size:11px; }} .mini-save, .gallery-trigger {{ border:0; background:rgba(109,214,160,.14); color:var(--green); padding:8px 9px; border-radius:9px; font-size:10px; font-weight:900; white-space:nowrap; cursor:pointer; }}
+       .gallery-trigger {{ background:rgba(111,209,215,.12); color:var(--cyan); }} .category-admin-row {{ display:grid; grid-template-columns:46px minmax(120px,1fr) minmax(260px,1.4fr); gap:12px; align-items:center; padding:12px 0; border-bottom:1px solid var(--border); }}
+       .category-admin-row:last-child {{ border:0; }} .category-admin-info b, .category-admin-info small {{ display:block; }} .category-admin-info small {{ color:var(--muted); font-size:10px; margin-top:2px; }}
+      .delete-link {{ color:var(--danger); font-size:10px; text-decoration:none; }} .form-grid {{ display:grid; grid-template-columns:1fr 1fr; gap:0 10px; }} .form-grid .full {{ grid-column:1/-1; }}
+      .field-note {{ display:block; color:var(--muted); font-size:10px; margin-top:6px; }} .balance-row {{ display:flex; justify-content:space-between; gap:10px; align-items:center; padding:12px 0; border-bottom:1px solid var(--border); }}
+       .balance-row:last-child {{ border:0; }} .balance-row small {{ display:block; color:var(--muted); font-size:10px; }} .balance-form {{ display:flex; gap:5px; align-items:center; }} .balance-form input {{ margin:0; width:88px; padding:8px; font-size:11px; }} .balance-form button {{ margin:0; min-height:34px; padding:5px 8px; border:0; font-size:10px; font-weight:900; }} .plus {{ background:rgba(109,214,160,.16); color:var(--green); }} .minus {{ background:rgba(237,125,134,.14); color:var(--danger); }} .balance-log {{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }} .balance-log:last-child {{ border:0; }} .balance-log b, .balance-log small {{ display:block; }} .balance-log small {{ color:var(--muted); font-size:10px; }} .plus-text {{ color:var(--green); }} .minus-text {{ color:var(--danger); }}
+      .quick-actions {{ display:grid; grid-template-columns:repeat(2,1fr); gap:9px; }} .quick-actions a {{ padding:12px; border-radius:12px; text-decoration:none; background:rgba(111,209,215,.07); border:1px solid rgba(111,209,215,.18); color:var(--cyan); font-size:11px; font-weight:900; text-align:center; }}
+      @media(max-width:900px) {{ .admin-grid {{ grid-template-columns:1fr; }} .admin-stats {{ grid-template-columns:repeat(2,1fr); }} }}
+       @media(max-width:600px) {{ .admin-hero {{ align-items:flex-start; flex-direction:column; }} .service-row, .category-admin-row {{ grid-template-columns:42px 1fr; }} .service-actions, .category-admin-row form {{ grid-column:1/-1; }} .form-grid {{ grid-template-columns:1fr; }} .form-grid .full {{ grid-column:auto; }} .balance-row {{ align-items:flex-start; flex-direction:column; }} .balance-form {{ width:100%; }} .balance-form input {{ flex:1; }} }}
+    </style></head><body>
+      <div class="admin-shell">
+        <header class="admin-hero"><div><div class="eyebrow">مساحة المالك</div><h1>لوحة الإدارة</h1><p>نظرة مرتبة على الأداء، الأرصدة، والخدمات المنشورة.</p></div><div class="admin-status {status_class}"><i class="fas fa-circle"></i> {status_label}</div></header>
+        <section class="admin-stats">
+          <div class="admin-stat"><i class="fas fa-chart-line"></i><strong>{money(total_profit)}</strong><span>إجمالي قيمة الطلبات</span></div>
+          <div class="admin-stat"><i class="fas fa-users"></i><strong>{len(users)}</strong><span>الحسابات</span></div>
+          <div class="admin-stat"><i class="fas fa-wallet"></i><strong>{money(total_balances)}</strong><span>أرصدة العملاء</span></div>
+          <div class="admin-stat"><i class="fas fa-bag-shopping"></i><strong>{len(orders)}</strong><span>الطلبات</span></div>
+        </section>
+        <div class="admin-grid">
+          <div>
+            <section class="card admin-card"><div class="section-head"><div><h2>إضافة خدمة</h2><p class="lead">أدخل بيانات المزود داخلياً، واختر صورة تظهر للعملاء.</p></div><i class="fas fa-plus-circle" style="color:var(--accent);font-size:21px;"></i></div>
+              <form action="/admin_action" method="GET"><input type="hidden" name="type" value="add_full_svc"><div class="form-grid">
+                <input name="n" placeholder="اسم الخدمة" required><input name="c" placeholder="الفئة / التطبيق" required>
+                <input type="number" step="0.01" name="p" placeholder="السعر لكل 1000" required><input name="sid" placeholder="معرّف الخدمة عند المزود" required>
+                 <div class="full"><div style="display:flex;gap:7px;align-items:center;"><input id="new-image" type="url" name="img" placeholder="رابط صورة أو أيقونة التطبيق"><button type="button" class="gallery-trigger" onclick="openGallery('new-image')"><i class="fas fa-images"></i> فتح المعرض</button></div><span class="field-note">اختر صورة جاهزة من المعرض أو ألصق رابطاً مخصصاً، وستظهر في الفئة والخدمة.</span><select id="image-presets" onchange="document.getElementById('new-image').value=this.value"><option value="">اختيار صورة/أيقونة جاهزة</option>{preset_options}{existing_options}</select></div>
+                <input name="url" placeholder="رابط API المزود" required><input name="key" type="password" placeholder="مفتاح API المزود" required>
+              </div><button class="btn-send" type="submit" style="width:100%;margin-top:17px;"><i class="fas fa-save"></i> حفظ ونشر الخدمة</button></form>
+            </section>
+             <section class="card admin-card"><div class="section-head"><div><h2>صور الفئات</h2><p class="lead">اختر صورة مستقلة لكل فئة لتظهر أولاً في كتالوج العملاء.</p></div><i class="fas fa-images" style="color:var(--cyan);font-size:21px;"></i></div>
+               <div class="category-admin-list">{category_rows or '<div class="empty-state">أضف خدمة أولاً لتظهر فئاتها هنا.</div>'}</div>
+             </section>
+             <section class="card admin-card"><div class="section-head"><div><h2>الخدمات والصور</h2><p class="lead">الصورة المختارة تظهر في كتالوج العملاء وبجوار الخدمة.</p></div><span class="pill">{len(services)} خدمة</span></div><div>{service_rows}</div></section>
+          </div>
+          <div>
+             <section class="card admin-card" id="balances"><div class="section-head"><div><h2>إدارة الأرصدة</h2><p class="lead">ابحث عن حساب وعدّل رصيده بسرعة.</p></div><i class="fas fa-coins" style="color:var(--accent);font-size:21px;"></i></div>
+               <div class="inline-note"><i class="fas fa-hand-holding-dollar"></i><span>الرصيد يدوي بالكامل — لا توجد بوابة دفع أو طلبات شحن إلكترونية.</span></div>
+               <input id="userInput" type="search" placeholder="ابحث باسم المستخدم" oninput="searchUsers()"><div id="userList" style="max-height:390px;overflow:auto;">{user_rows or '<div class="empty-state">لا توجد حسابات.</div>'}</div>
+            </section>
+             <section class="card admin-card"><div class="section-head"><div><h2>آخر تعديلات الرصيد</h2><p class="lead">سجل سريع لكل إضافة أو خصم يدوي.</p></div><i class="fas fa-clock-rotate-left" style="color:var(--cyan);font-size:21px;"></i></div><div class="balance-logs">{recent_balance_logs}</div></section>
+            <section class="card admin-card"><div class="section-head"><div><h2>اختصارات الإدارة</h2><p class="lead">الأعمال المتكررة في مكان واحد.</p></div></div><div class="quick-actions">
+               <a href="/admin_reports">التقارير</a><a href="/admin_coupons">الكوبونات</a><a href="/admin_tickets">التذاكر ({open_tickets})</a><a href="/admin_action?type=sync_orders">تحديث الطلبات</a><a href="/admin_backup">نسخة احتياطية</a><a href="/admin_action?type=toggle_site">{'إيقاف الموقع' if active else 'تشغيل الموقع'}</a><a href="/settings">العودة للموقع</a>
+            </div></section>
+          </div>
+        </div>
+      </div>
+      <div id="gallery-overlay" class="gallery-overlay" onclick="closeGallery(event)"><div class="gallery-dialog" onclick="event.stopPropagation()">
+        <div class="gallery-head"><div><div class="eyebrow">معرض الصور</div><h3>اختر صورة للفئة أو الخدمة</h3></div><button type="button" class="gallery-close" onclick="closeGallery()"><i class="fas fa-xmark"></i></button></div>
+        <p class="field-note">الاختيار يملأ الحقل مباشرة، ثم اضغط حفظ لتثبيته.</p>
+        <div class="gallery-grid">{''.join(f'<button type="button" class="gallery-item" onclick="pickGallery({json.dumps(item["url"], ensure_ascii=False)})"><img src="{h(item["url"])}" alt="" onerror="this.style.display=\'none\'"><span>{h(item["label"])}</span></button>' for item in gallery_images)}</div>
+        <div class="gallery-custom"><input id="gallery-custom-url" type="url" placeholder="أو ألصق رابط صورة مخصص"><button type="button" class="btn-send" onclick="pickCustomGallery()">استخدام الرابط</button></div>
+      </div></div>
+      <script>
+        function searchUsers() {{ const value=document.getElementById('userInput').value.toLowerCase(); document.querySelectorAll('.balance-row').forEach(row => row.style.display=row.innerText.toLowerCase().includes(value) ? 'flex' : 'none'); }}
+        let galleryTarget = null;
+        function openGallery(targetId) {{ galleryTarget=targetId; document.getElementById('gallery-overlay').classList.add('open'); document.getElementById('gallery-custom-url').value=''; }}
+        function closeGallery(event) {{ if (!event || event.target === document.getElementById('gallery-overlay')) document.getElementById('gallery-overlay').classList.remove('open'); }}
+        function pickGallery(url) {{ if (galleryTarget) document.getElementById(galleryTarget).value=url; closeGallery(); }}
+        function pickCustomGallery() {{ const url=document.getElementById('gallery-custom-url').value.trim(); if (url) pickGallery(url); }}
+      </script>
+    </body></html>"""
+
+
 def get_user_page(db, user):
     u = db["users"][user]
     svcs = db.get("services", [])
     user_orders = [o for o in db.get("orders", []) if o.get('user') == user]
-    cats = sorted(list(set([s['cat'] for s in svcs])))
+    cats = sorted(list(set([s.get('cat', 'عام') for s in svcs])))
+    category_images = db.get("category_images", {})
     level, discount = tier_for_user(db, user)
     unread = len([n for n in db.get("notifications", []) if n.get("user") == user and not n.get("read")])
+    # نسخة العرض العامة لا تحتوي على api_url أو api_key.
+    public_svcs = [
+        {"id": str(s.get("id", "")), "name": s.get("name", ""), "cat": s.get("cat", "عام"),
+         "image_url": s.get("image_url", ""), "price": s.get("price", 0)}
+        for s in svcs
+    ]
+    category_data = []
+    for cat in cats:
+        first = next((s for s in svcs if s.get("cat", "عام") == cat and s.get("image_url")), None)
+        category_data.append({"name": cat, "image_url": category_images.get(cat) or (first.get("image_url", "") if first else "")})
+    category_cards = ""
+    for idx, item in enumerate(category_data):
+        image_url = str(item.get("image_url", "")).strip()
+        category_art = f'<img src="{h(image_url)}" alt="" onerror="this.style.display=\'none\'">' if image_url else '<i class="fas fa-layer-group"></i>'
+        service_count = sum(1 for service in svcs if service.get("cat", "عام") == item.get("name"))
+        category_cards += f"""<button type="button" class="category-card" data-index="{idx}" onclick="selectCatIndex({idx})">
+            <span class="category-art">{category_art}</span>
+            <span>{h(item.get("name"))}</span><small>{service_count} خدمات</small>
+        </button>"""
+    if not category_cards:
+        category_cards = '<div class="empty-state">ستظهر الخدمات هنا بعد إضافتها من لوحة المالك.</div>'
+    recent_orders = "".join(
+        f"""<div class="recent-order"><div><b>{h(order.get("svc"))}</b><small>{h(order.get("created_at", ""))} · {h(order.get("qty"))} وحدة</small></div><span class="pill">{h(order.get("status", "قيد التنفيذ"))}</span></div>"""
+        for order in reversed(user_orders[-3:])
+    ) or '<div class="empty-state">ابدأ أول طلب وستظهر تحديثاته هنا.</div>'
 
     return f"""<!DOCTYPE html>
 <html lang="ar">
@@ -723,99 +1115,131 @@ def get_user_page(db, user):
     {get_master_style()}
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* تحسين شكل القوائم المنسدلة المجمّلة */
+        .dashboard {{ width:min(1180px,calc(100% - 32px)); margin:auto; }}
+        .welcome-strip {{ display:flex; align-items:center; justify-content:space-between; gap:18px; padding:24px 0 10px; }}
+        .welcome-strip h1 {{ margin:0; font-size:clamp(24px,4vw,38px); line-height:1.25; }}
+        .welcome-strip p {{ margin:6px 0 0; color:var(--muted); font-size:13px; }}
+        .brand-lockup {{ display:flex; align-items:center; gap:10px; font-weight:900; font-size:21px; text-decoration:none; }}
+        .brand-mark {{ width:38px; height:38px; display:grid; place-items:center; border-radius:12px; background:var(--accent); color:#17202b; }}
+        .balance-chip {{ padding:11px 15px; border:1px solid rgba(246,200,95,.28); background:rgba(246,200,95,.08); border-radius:15px; text-align:left; }}
+        .balance-chip small {{ display:block; color:var(--muted); font-size:10px; }} .balance-chip b {{ font-size:18px; color:var(--accent); }}
+        .category-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:10px; }}
+        .category-card {{ min-height:116px; display:flex; flex-direction:column; align-items:flex-start; justify-content:space-between; gap:6px; padding:13px; border:1px solid var(--border); border-radius:17px; color:var(--text); background:rgba(8,17,30,.26); cursor:pointer; text-align:right; }}
+        .category-card:hover, .category-card.selected {{ border-color:var(--accent); background:rgba(246,200,95,.10); transform:translateY(-2px); }}
+        .category-card span:nth-child(2) {{ font-weight:900; font-size:13px; }} .category-card small {{ color:var(--muted); font-size:10px; }}
+        .category-art {{ width:40px; height:40px; display:grid; place-items:center; overflow:hidden; border-radius:12px; background:rgba(111,209,215,.12); color:var(--cyan); }}
+        .category-art img {{ width:100%; height:100%; object-fit:cover; }}
+         .recent-order {{ display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--border); }}
+         .recent-order:last-child {{ border-bottom:0; }} .recent-order b, .recent-order small {{ display:block; }} .recent-order small {{ color:var(--muted); font-size:10px; margin-top:2px; }}
+         .service-search {{ margin:0 0 10px; }}
+         .estimate {{ display:flex; justify-content:space-between; gap:10px; padding:11px 13px; margin-top:12px; border-radius:14px; background:rgba(246,200,95,.08); border:1px solid rgba(246,200,95,.18); color:var(--muted); font-size:11px; }}
+         .estimate strong {{ color:var(--accent); font-size:16px; }}
+        .order-layout {{ display:grid; grid-template-columns:minmax(0,1.2fr) minmax(260px,.8fr); gap:18px; align-items:start; }}
+        .field-label {{ display:block; color:var(--muted); font-size:11px; font-weight:700; margin:17px 0 5px; }}
         .custom-dropdown {{
             position: relative;
             width: 100%;
-            margin-bottom: 20px;
+            margin-bottom: 14px;
             text-align: right;
         }}
 
         .dropdown-selected {{
             width: 100%;
-            padding: 16px 20px;
-            background: rgba(0, 0, 0, 0.4);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 20px;
+            min-height: 50px;
+            padding: 12px 14px;
+            background: rgba(4, 12, 23, .38);
+            border: 1px solid var(--border);
+            border-radius: 14px;
             color: #fff;
             cursor: pointer;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            transition: 0.3s;
         }}
 
         .dropdown-selected:hover {{ border-color: var(--accent); }}
 
         .dropdown-options {{
             position: absolute;
-            top: 110%;
-            left: 0;
+            top: calc(100% + 7px);
+            right: 0;
             width: 100%;
-            background: #1a2a33;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            max-height: 250px;
+            background: #152840;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            max-height: 270px;
             overflow-y: auto;
             display: none;
             z-index: 1000;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            box-shadow: 0 18px 38px rgba(0,0,0,.35);
         }}
 
         .option-item {{
-            padding: 12px 15px;
+            padding: 11px 13px;
             display: flex;
             align-items: center;
             gap: 10px;
             cursor: pointer;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-            font-size: 14px;
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
         }}
 
         .option-item:hover {{ background: rgba(243, 156, 18, 0.1); color: var(--accent); }}
-        .option-item img {{ width: 22px; height: 22px; border-radius: 5px; }}
+        .option-item img {{ width: 28px; height: 28px; object-fit:cover; border-radius: 8px; background:var(--panel-soft); }}
         
         .show {{ display: block !important; }}
 
-        /* انيميشن النافذة الزجاجية */
-        @keyframes slideUp {{ from {{ transform: translateY(50px); opacity:0; }} to {{ transform: translateY(0); opacity:1; }} }}
+        .order-aside {{ padding:20px; border:1px solid rgba(111,209,215,.2); border-radius:19px; background:linear-gradient(145deg,rgba(111,209,215,.09),rgba(8,17,30,.15)); }}
+        .order-aside h3 {{ margin:0 0 8px; }} .order-aside p {{ color:var(--muted); font-size:12px; margin:0 0 15px; }}
+        .trust-line {{ display:flex; align-items:center; gap:9px; color:var(--muted); font-size:11px; margin:11px 0; }} .trust-line i {{ color:var(--green); }}
         .modal-detail-row {{ display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.05); }}
+        .modal-detail-row:last-child {{ border:0; }}
+        @keyframes slideUp {{ from {{ transform:translateY(30px); opacity:0; }} to {{ transform:translateY(0); opacity:1; }} }}
+        @media(max-width:760px) {{ .welcome-strip {{ align-items:flex-start; flex-direction:column; }} .balance-chip {{ width:100%; text-align:right; }} .order-layout {{ grid-template-columns:1fr; }} }}
     </style>
 </head>
 <body>
     <div class="header">
-        <div style="font-weight:900; color:var(--accent); font-size:22px;">{SITE_NAME}</div>
-        <div style="display:flex;gap:18px;align-items:center;"><a href="/notifications" style="color:white;font-size:20px;"><i class="fas fa-bell"></i><sup style="color:var(--accent);">{unread}</sup></a><a href="/settings" style="color:white; font-size:24px;"><i class="fas fa-cog"></i></a></div>
+        <a href="/" class="brand-lockup"><span class="brand-mark"><i class="fas fa-spider"></i></span>{SITE_NAME}</a>
+        <div style="display:flex;gap:16px;align-items:center;"><a href="/notifications" aria-label="الإشعارات" style="font-size:19px;"><i class="fas fa-bell"></i><sup style="color:var(--accent);">{unread}</sup></a><a href="/settings" aria-label="الإعدادات" style="font-size:19px;"><i class="fas fa-sliders"></i></a></div>
     </div>
-
-    <div class="card" style="border-color:rgba(243,156,18,.35);"><div style="font-size:13px;opacity:.75;">{h(db.get('announcement', ''))}</div></div>
+    <main class="dashboard">
+    <div class="welcome-strip"><div><div class="eyebrow">مساحة العمل الشخصية</div><h1>مرحباً، {h(user)}</h1><p>{h(db.get('announcement', ''))}</p></div><div class="balance-chip"><small>الرصيد المتاح</small><b>{money(u.get('balance'))}</b></div></div>
     <div class="stats-grid" style="margin-top:20px;">
-        <div class="stat-item"><i class="fas fa-wallet"></i><div class="stat-label">رصيدك</div><div class="stat-value">{money(u.get('balance'))}</div></div>
+        <div class="stat-item"><i class="fas fa-wallet"></i><div class="stat-label">الرصيد</div><div class="stat-value">{money(u.get('balance'))}</div></div>
         <div class="stat-item"><i class="fas fa-shopping-bag"></i><div class="stat-label">الطلبات</div><div class="stat-value">{len(user_orders)}</div></div>
         <div class="stat-item"><i class="fas fa-star"></i><div class="stat-label">الفئة</div><div class="stat-value">{level}</div></div>
     </div>
+    <section class="card">
+        <div class="section-head"><div><div class="eyebrow">آخر النشاط</div><h2 style="margin:3px 0 0;">تحديثات طلباتك</h2></div><a class="pill" href="/order_history">عرض السجل</a></div>
+        <div>{recent_orders}</div>
+    </section>
 
-    <div class="card">
-        <h4 style="margin-top:0; color:var(--accent);"><i class="fas fa-shopping-cart"></i> إنشاء طلب جديد</h4>
-        
-        <form id="orderForm">
+    <section class="card">
+        <div class="section-head"><div><div class="eyebrow">كتالوج الخدمات</div><h2 style="margin:3px 0 0;">اختر أين تريد أن تنمو</h2></div><span class="pill">{len(svcs)} خدمة متاحة</span></div>
+        <div class="category-grid">{category_cards}</div>
+    </section>
+    <section class="card">
+        <div class="section-head"><div><div class="eyebrow">طلب جديد</div><h2 style="margin:3px 0 0;">خدمة واضحة، بخطوة واحدة</h2></div><span class="pill"><i class="fas fa-shield-halved"></i> آمن</span></div>
+        <div class="order-layout"><form id="orderForm">
             <!-- قائمة الأقسام المجمّلة -->
-            <span class="input-label">اختر القسم:</span>
+            <span class="field-label">القسم</span>
             <div class="custom-dropdown">
                 <div class="dropdown-selected" onclick="toggleDrop('cat-drop')">
-                    <span id="cat-text">-- اضغط للاختيار --</span>
+                    <span id="cat-text">اختر فئة لتظهر خدماتها</span>
                     <i class="fas fa-chevron-down"></i>
                 </div>
                 <div class="dropdown-options" id="cat-drop">
-                    {" ".join([f'<div class="option-item" onclick="selectCat(\'{c}\')"><span>{c}</span></div>' for c in cats])}
+                    {" ".join([f'<div class="option-item" data-index="{idx}" onclick="selectCatIndex({idx})"><i class="fas fa-layer-group"></i><span>{h(c)}</span></div>' for idx, c in enumerate(cats)])}
                 </div>
             </div>
 
             <!-- قائمة الخدمات المجمّلة -->
-            <span class="input-label">اختر الخدمة:</span>
+            <span class="field-label">الخدمة</span>
+            <input class="service-search" id="service-search" type="search" placeholder="ابحث داخل خدمات القسم..." oninput="loadSvcs(document.getElementById('cat-text').innerText)">
             <div class="custom-dropdown">
                 <div class="dropdown-selected" onclick="toggleDrop('svc-drop')">
-                    <span id="svc-text">-- اختر القسم أولاً --</span>
+                    <span id="svc-text">اختر القسم أولاً</span>
                     <i class="fas fa-chevron-down"></i>
                 </div>
                 <div class="dropdown-options" id="svc-drop">
@@ -825,39 +1249,41 @@ def get_user_page(db, user):
 
             <input type="hidden" id="s_sel" name="sid">
 
-            <span class="input-label">رابط الحساب / المنشور:</span>
-            <input type="text" id="link" placeholder="ضع الرابط هنا..." required class="input-field" style="width:100%; padding:16px; border-radius:20px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.08); color:#fff; margin-bottom:20px; outline:none;">
-
-            <span class="input-label">الكمية المطلوبة:</span>
-            <input type="number" id="qty" placeholder="أدخل الكمية..." required class="input-field" style="width:100%; padding:16px; border-radius:20px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.08); color:#fff; margin-bottom:20px; outline:none;">
-            <input type="text" id="coupon" placeholder="كود الخصم (اختياري)" class="input-field" style="width:100%; padding:16px; border-radius:20px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.08); color:#fff; margin-bottom:20px; outline:none;">
-
-            <button type="button" onclick="submitOrder()" class="btn-send" style="width:100%; padding:18px; border-radius:22px; background:var(--accent); color:#000; font-weight:900; border:none; cursor:pointer;">
-                <i class="fas fa-bolt"></i> تنفيذ الطلب الآن
-            </button>
+            <span class="field-label">رابط الحساب أو المنشور</span>
+            <input type="url" id="link" placeholder="https://..." required>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <div><span class="field-label">الكمية</span><input type="number" id="qty" min="1" placeholder="مثال: 1000" oninput="updateEstimate()" required></div>
+                <div><span class="field-label">كود الخصم <small>(اختياري)</small></span><input type="text" id="coupon" placeholder="إن وجد"></div>
+            </div>
+            <div class="estimate"><span>التكلفة التقديرية بعد خصم المستوى</span><strong id="estimate-value">$0.00</strong></div>
+            <button type="button" onclick="submitOrder()" class="btn-send" style="width:100%;margin-top:18px;"><i class="fas fa-bolt"></i> مراجعة وتنفيذ الطلب</button>
         </form>
-    </div>
+        <aside class="order-aside"><i class="fas fa-route" style="font-size:24px;color:var(--cyan);"></i><h3>كيف يعمل الطلب؟</h3><p>اختر الخدمة، أضف الرابط والكمية، وسنبدأ التنفيذ بعد التحقق من الرصيد.</p><div class="trust-line"><i class="fas fa-circle-check"></i><span>لا نطلب كلمة مرور حسابك</span></div><div class="trust-line"><i class="fas fa-circle-check"></i><span>تحديث الحالة متاح من سجل الطلبات</span></div><div class="trust-line"><i class="fas fa-circle-check"></i><span>الدعم حاضر عند الحاجة</span></div></aside></div>
+    </section>
+    </main>
 
-    <div id="orderModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:10000; align-items:center; justify-content:center;">
-        <div class="card" id="modalBody" style="width:88%; max-width:380px; text-align:center; animation:slideUp 0.4s ease;">
-        </div>
+    <div id="orderModal" style="display:none; position:fixed; inset:0; background:rgba(5,11,20,.78); z-index:10000; align-items:center; justify-content:center; padding:16px;">
+        <div class="card" id="modalBody" style="width:100%;max-width:410px;text-align:center;animation:slideUp .35s ease;"></div>
     </div>
 
     <div class="bottom-nav">
         <a href="/" class="nav-item active"><i class="fas fa-home"></i>الرئيسية</a>
-        <a href="/topup" class="nav-item"><i class="fas fa-wallet"></i>الرصيد</a>
+        <a href="/settings" class="nav-item"><i class="fas fa-wallet"></i>الرصيد</a>
         <a href="/order_history" class="nav-item"><i class="fas fa-history"></i>الطلبات</a>
         <a href="/support" class="nav-item"><i class="fas fa-headset"></i>الدعم</a>
     </div>
 
     <script>
-        const data = {json.dumps(svcs)};
+        const data = {json.dumps(public_svcs, ensure_ascii=False)};
+        const categories = {json.dumps(category_data, ensure_ascii=False)};
 
         function toggleDrop(id) {{
             document.getElementById(id).classList.toggle('show');
         }}
 
-        function selectCat(val) {{
+        function selectCatIndex(index) {{
+            const val = categories[index].name;
+            document.querySelectorAll('.category-card').forEach(card => card.classList.toggle('selected', Number(card.dataset.index) === index));
             document.getElementById('cat-text').innerText = val;
             toggleDrop('cat-drop');
             loadSvcs(val);
@@ -869,17 +1295,27 @@ def get_user_page(db, user):
             sList.innerHTML = '';
             sText.innerText = '-- اختر الخدمة --';
             
-            data.filter(i => i.cat === c).forEach(i => {{
+            const query = (document.getElementById('service-search').value || '').toLowerCase().trim();
+            data.filter(i => i.cat === c && (!query || i.name.toLowerCase().includes(query))).forEach(i => {{
                 let div = document.createElement('div');
                 div.className = 'option-item';
-                div.innerHTML = `<span>${{i.name}} (${{i.price}}$)</span>`;
+                div.innerHTML = i.image_url ? `<img src="${{i.image_url}}" alt="" onerror="this.style.display='none'"><span>${{i.name}} <small>· ${{Number(i.price).toFixed(2)}} لكل 1000</small></span>` : `<i class="fas fa-chart-simple"></i><span>${{i.name}} <small>· ${{Number(i.price).toFixed(2)}} لكل 1000</small></span>`;
                 div.onclick = function() {{
                     document.getElementById('s_sel').value = i.id;
                     sText.innerText = i.name;
+                    window.selectedService = i;
+                    updateEstimate();
                     toggleDrop('svc-drop');
                 }};
                 sList.appendChild(div);
             }});
+        }}
+
+        function updateEstimate() {{
+            const qty = Number(document.getElementById('qty').value || 0);
+            const service = window.selectedService;
+            const value = service && qty > 0 ? (Number(service.price || 0) / 1000 * qty * (1 - {discount} / 100)) : 0;
+            document.getElementById('estimate-value').textContent = '$' + value.toFixed(2);
         }}
 
         async function submitOrder() {{
@@ -890,7 +1326,7 @@ def get_user_page(db, user):
             const link = document.getElementById('link').value;
             const coupon = document.getElementById('coupon').value;
 
-            if(!sid || !qty || !link) {{ alert('أكمل البيانات أولاً صديقي!'); return; }}
+            if(!sid || !qty || !link) {{ alert('اختر الخدمة وأكمل الرابط والكمية أولاً.'); return; }}
 
             modal.style.display = 'flex';
             modalBody.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size:45px; color:var(--accent);"></i>';
@@ -919,7 +1355,7 @@ def get_user_page(db, user):
                     `;
                 }}
             }} catch (e) {{
-                modalBody.innerHTML = '<p>تم الطلب قيد التنفيذ♻️</p><button onclick="location.reload()">موافق</button>';
+                modalBody.innerHTML = '<p>تعذر الاتصال، لكن يمكنك تحديث الصفحة والتحقق من سجل الطلبات.</p><button onclick="document.getElementById(\\'orderModal\\').style.display=\\'none\\'" class="btn-send">إغلاق</button>';
             }}
         }}
 
@@ -973,6 +1409,18 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                 self.send_header("Location", "/")
                 self.end_headers()
             else: res(get_welcome_page("اسم المستخدم أو كلمة المرور غير صحيحة"))
+            return
+
+        if p == "/clerk_bridge":
+            session_id = q.get("session_id", [""])[0].strip()
+            clerk_user = bridge_clerk_session(db, session_id) if session_id else None
+            if clerk_user:
+                self.send_response(302)
+                self.send_header("Set-Cookie", f"session_user={urllib.parse.quote(clerk_user)}; Path=/; HttpOnly; SameSite=Lax")
+                self.send_header("Location", "/")
+                self.end_headers()
+            else:
+                res(get_welcome_page("تعذر التحقق من جلسة Google، حاول مرة أخرى"))
             return
 
         if p == "/register":
@@ -1047,7 +1495,7 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                     discount = min(100, discount + float(coupon.get("percent", 0)))
                 cost = round(base_cost * (1 - discount / 100), 4)
                 if db['users'][user]['balance'] < cost:
-                    json_res({"status": "error", "message": "رصيدك غير كافٍ لشحن هذا الطلب"})
+                    json_res({"status": "error", "message": "رصيدك غير كافٍ لتنفيذ هذا الطلب. تواصل مع المالك لإضافة الرصيد يدوياً."})
                     return
                 if svc.get("api_url") and svc.get("api_key"):
                     success, result = send_api_order(svc['api_url'], svc['api_key'], svc.get('remote_id', ''), link, qty)
@@ -1076,30 +1524,11 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
 
         # أدوات الحساب والصفحات الجديدة
         if p == "/topup":
-            res(get_topup_page(db, user))
+            go("/settings")
             return
 
         if p == "/topup_action":
-            if q.get("type", [""])[0] == "request":
-                try:
-                    amount = float(q.get("amount", ["0"])[0])
-                except ValueError:
-                    amount = 0
-                if amount <= 0:
-                    res(get_topup_page(db, user, "أدخل مبلغاً صحيحاً"))
-                    return
-                topup = {
-                    "id": secrets.token_hex(6), "user": user, "amount": amount,
-                    "method": q.get("method", [""])[0], "reference": q.get("reference", [""])[0],
-                    "status": "قيد المراجعة", "created_at": now()
-                }
-                db.setdefault("topups", []).append(topup)
-                for admin_name, account in db["users"].items():
-                    if account.get("is_admin"):
-                        notify(db, admin_name, "طلب شحن جديد", f"طلب {user} شحن رصيد بقيمة {money(amount)}")
-                audit(db, user, "topup_request", f"طلب شحن بقيمة {amount}")
-                save_db(db)
-                res(get_topup_page(db, user, "تم إرسال طلب الشحن للمراجعة"))
+            go("/settings")
             return
 
         if p == "/notifications":
@@ -1158,7 +1587,7 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
             
         elif p == "/admin_panel":
             if db['users'].get(user, {}).get('is_admin'): 
-                res(get_admin_page(db))
+                res(get_admin_page_v2(db))
             else: 
                 go("/")
                 
@@ -1176,7 +1605,7 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
 
         elif p == "/admin_topups":
             if db['users'].get(user, {}).get('is_admin'):
-                res(get_admin_topups_page(db))
+                go("/admin_panel")
             else:
                 go("/")
 
@@ -1207,9 +1636,18 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
             # 1. تعديل الرصيد
             if t == "adj_bal":
                 target, amt, mode = q.get('u',[''])[0], float(q.get('a',['0'])[0]), q.get('mode',[''])[0]
-                db['users'][target]['balance'] += amt if mode == "plus" else -amt
+                if target not in db.get("users", {}) or amt <= 0:
+                    go("/admin_panel")
+                    return
+                delta = amt if mode == "plus" else -amt
+                db['users'][target]['balance'] = max(0, float(db['users'][target].get('balance', 0)) + delta)
                 notify(db, target, "تحديث الرصيد", f"تم تعديل رصيدك بمبلغ {money(amt)}")
-                audit(db, user, "adjust_balance", f"تم تعديل رصيد {target}")
+                db.setdefault("balance_logs", []).append({
+                    "id": secrets.token_hex(5), "user": target, "delta": delta,
+                    "note": q.get("note", [""])[0].strip()[:120] or "تعديل يدوي من المالك",
+                    "actor": user, "created_at": now()
+                })
+                audit(db, user, "adjust_balance", f"تم تعديل رصيد {target} بمقدار {money(delta)}")
                 save_db(db)
                 go("/admin_panel")
             
@@ -1220,6 +1658,7 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                     "id": new_id, 
                     "name": q.get('n', [''])[0], 
                     "cat": q.get('c', [''])[0], 
+                    "image_url": q.get('img', [''])[0].strip() or (preset_for_service({"cat": q.get('c', [''])[0]}) or {}).get("image_url", ""),
                     "price": float(q.get('p', ['0'])[0]), 
                     "remote_id": q.get('sid', [''])[0],
                     "api_url": q.get('url', [''])[0], 
@@ -1227,6 +1666,23 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                 })
                 audit(db, user, "add_service", q.get('n', [''])[0])
                 save_db(db)
+                go("/admin_panel")
+
+            elif t == "update_svc_image":
+                svc_id = q.get('id', [''])[0]
+                service = next((item for item in db.get("services", []) if str(item.get("id")) == str(svc_id)), None)
+                if service:
+                    service["image_url"] = q.get("img", [""])[0].strip()
+                    audit(db, user, "update_service_image", svc_id)
+                    save_db(db)
+                go("/admin_panel")
+
+            elif t == "update_cat_image":
+                category = q.get('cat', [''])[0].strip()
+                if category:
+                    db.setdefault("category_images", {})[category] = q.get("img", [""])[0].strip()
+                    audit(db, user, "update_category_image", category)
+                    save_db(db)
                 go("/admin_panel")
 
             # 3. حذف الخدمة (الإضافة الجديدة)
@@ -1246,28 +1702,10 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                 go("/admin_panel")
 
             elif t in ("approve_topup", "reject_topup"):
-                topup_id = q.get("id", [""])[0]
-                topup = next((item for item in db.get("topups", []) if item.get("id") == topup_id), None)
-                if topup and topup.get("status") == "قيد المراجعة":
-                    if t == "approve_topup":
-                        amount = float(topup.get("amount", 0))
-                        db["users"].setdefault(topup["user"], {}).setdefault("balance", 0)
-                        db["users"][topup["user"]]["balance"] += amount
-                        db["users"][topup["user"]]["referrals_earnings"] = db["users"][topup["user"]].get("referrals_earnings", 0)
-                        referred_by = db["users"][topup["user"]].get("referred_by")
-                        if referred_by and referred_by in db["users"]:
-                            commission = amount * float(db.get("referral_percent", 5)) / 100
-                            db["users"][referred_by]["balance"] += commission
-                            db["users"][referred_by]["referrals_earnings"] = db["users"][referred_by].get("referrals_earnings", 0) + commission
-                            notify(db, referred_by, "عمولة إحالة", f"أضيفت لك عمولة بقيمة {money(commission)}")
-                        topup["status"] = "مقبول"
-                        notify(db, topup["user"], "تم قبول الشحن", f"تمت إضافة {money(amount)} إلى رصيدك")
-                    else:
-                        topup["status"] = "مرفوض"
-                        notify(db, topup["user"], "تم رفض طلب الشحن", "يمكنك فتح تذكرة للدعم إذا كان هناك خطأ")
-                    audit(db, user, t, topup_id)
-                    save_db(db)
-                go("/admin_topups")
+                # الطلبات القديمة لا تُعالج بعد اعتماد الرصيد اليدوي من المالك.
+                audit(db, user, "legacy_balance_request_blocked", q.get("id", [""])[0])
+                save_db(db)
+                go("/admin_panel")
 
             elif t == "create_coupon":
                 code = q.get("code", [""])[0].strip().upper()
@@ -1346,5 +1784,5 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
 if __name__ == "__main__":
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", PORT), SpiderServer) as httpd:
-        print(f"🚀 السيرفر يعمل الآن: http://localhost:{PORT}")
+        print(f"SpiderSmm server listening on http://localhost:{PORT}")
         httpd.serve_forever()

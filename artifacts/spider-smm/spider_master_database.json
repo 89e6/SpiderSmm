@@ -2,12 +2,33 @@
     "users": {
         "admin": {
             "pass": "a24d8b3fdcd24387f3f1903aa3c796a5a011cc8ef0e13855667d8d517112989d",
-            "balance": 1.0,
+            "balance": 0.0,
             "is_admin": true,
             "phone": "000"
         }
     },
-    "services": [],
+    "services": [
+        {
+            "id": "1",
+            "name": "F",
+            "cat": "F",
+            "image_url": "https://cdn.simpleicons.org/instagram/E4405F",
+            "price": 15.0,
+            "remote_id": "8383",
+            "api_url": "Iddidi",
+            "api_key": "ii3i3"
+        },
+        {
+            "id": "2",
+            "name": "Jrjt",
+            "cat": "Kgkg",
+            "image_url": "https://cdn.simpleicons.org/telegram/26A5E4",
+            "price": 56.0,
+            "remote_id": "8383",
+            "api_url": "Ruruur",
+            "api_key": "tjjt"
+        }
+    ],
     "orders": [],
     "announcement": "مرحباً بك في عالم الفخامة الرقمية!",
     "is_active": true,
@@ -19,6 +40,14 @@
             "message": "تم تعديل رصيدك بمبلغ $1.00",
             "read": true,
             "created_at": "2026-08-18 21:13:54"
+        },
+        {
+            "id": "2a75ac3afbbc",
+            "user": "admin",
+            "title": "تحديث الرصيد",
+            "message": "تم تعديل رصيدك بمبلغ $1.00",
+            "read": true,
+            "created_at": "2026-08-19 00:35:54"
         }
     ],
     "audit_logs": [
@@ -69,9 +98,66 @@
             "action": "open_ticket",
             "detail": "فتح تذكرة BDC327D5",
             "created_at": "2026-08-18 21:19:44"
+        },
+        {
+            "actor": "admin",
+            "action": "adjust_balance",
+            "detail": "تم تعديل رصيد admin",
+            "created_at": "2026-08-19 00:35:54"
+        },
+        {
+            "actor": "admin",
+            "action": "toggle_site",
+            "detail": "False",
+            "created_at": "2026-08-19 00:54:31"
+        },
+        {
+            "actor": "admin",
+            "action": "toggle_site",
+            "detail": "True",
+            "created_at": "2026-08-19 00:55:03"
+        },
+        {
+            "actor": "admin",
+            "action": "add_service",
+            "detail": "F",
+            "created_at": "2026-08-19 00:55:43"
+        },
+        {
+            "actor": "admin",
+            "action": "create_coupon",
+            "detail": "NBEL",
+            "created_at": "2026-08-19 00:56:32"
+        },
+        {
+            "actor": "admin",
+            "action": "add_service",
+            "detail": "Jrjt",
+            "created_at": "2026-08-19 00:57:16"
+        },
+        {
+            "actor": "admin",
+            "action": "toggle_site",
+            "detail": "False",
+            "created_at": "2026-08-19 08:22:18"
+        },
+        {
+            "actor": "admin",
+            "action": "toggle_site",
+            "detail": "True",
+            "created_at": "2026-08-19 08:22:22"
         }
     ],
-    "coupons": [],
+    "coupons": [
+        {
+            "code": "NBEL",
+            "percent": 50.0,
+            "max_uses": 1,
+            "uses": 0,
+            "active": true,
+            "created_at": "2026-08-19 00:56:32"
+        }
+    ],
     "tickets": [
         {
             "id": "8BB382DB",
