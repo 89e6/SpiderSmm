@@ -2,11 +2,13 @@
     "users": {
         "admin": {
             "pass": "a24d8b3fdcd24387f3f1903aa3c796a5a011cc8ef0e13855667d8d517112989d",
-            "balance": 4.952,
+            "balance": 4.892,
             "is_admin": true,
-            "phone": "000",
+            "phone": "",
             "email": "",
-            "theme": "light"
+            "theme": "dark",
+            "lang": "ar",
+            "guarantee_enabled": true
         },
         "N1": {
             "pass": "a24d8b3fdcd24387f3f1903aa3c796a5a011cc8ef0e13855667d8d517112989d",
@@ -64,6 +66,20 @@
             "remote_id": 13773115,
             "created_at": "2026-08-19 13:38:47",
             "status_updated_at": "2026-08-19 13:38:50",
+            "discount": 0
+        },
+        {
+            "id": "eaca2d2531bb",
+            "user": "admin",
+            "sid": "1",
+            "svc": "تليجرام",
+            "qty": 100,
+            "link": "https://t.me/rbdndeg",
+            "cost": 0.06,
+            "status": "مكتمل",
+            "remote_id": 13775182,
+            "created_at": "2026-08-19 21:02:50",
+            "status_updated_at": "2026-08-19 21:02:56",
             "discount": 0
         }
     ],
@@ -141,6 +157,22 @@
             "message": "طلبك تليجرام أصبح: مكتمل",
             "read": true,
             "created_at": "2026-08-19 13:38:50"
+        },
+        {
+            "id": "a5d3665d3549",
+            "user": "admin",
+            "title": "تم استلام طلبك",
+            "message": "طلب تليجرام قيد التنفيذ الآن",
+            "read": false,
+            "created_at": "2026-08-19 21:02:50"
+        },
+        {
+            "id": "df456164df57",
+            "user": "admin",
+            "title": "تحديث حالة الطلب",
+            "message": "طلبك تليجرام أصبح: مكتمل",
+            "read": false,
+            "created_at": "2026-08-19 21:02:56"
         }
     ],
     "audit_logs": [
@@ -365,6 +397,48 @@
             "action": "create_order",
             "detail": "تم إنشاء طلب للخدمة تليجرام",
             "created_at": "2026-08-19 13:38:47"
+        },
+        {
+            "actor": "admin",
+            "action": "update_profile",
+            "detail": "تم تحديث بيانات الحساب",
+            "created_at": "2026-08-19 20:59:38"
+        },
+        {
+            "actor": "admin",
+            "action": "update_profile",
+            "detail": "تم تحديث بيانات الحساب",
+            "created_at": "2026-08-19 20:59:59"
+        },
+        {
+            "actor": "admin",
+            "action": "update_profile",
+            "detail": "تم تحديث بيانات الحساب",
+            "created_at": "2026-08-19 21:00:08"
+        },
+        {
+            "actor": "admin",
+            "action": "update_profile",
+            "detail": "تم تحديث بيانات الحساب",
+            "created_at": "2026-08-19 21:00:15"
+        },
+        {
+            "actor": "admin",
+            "action": "create_order",
+            "detail": "تم إنشاء طلب للخدمة تليجرام",
+            "created_at": "2026-08-19 21:02:50"
+        },
+        {
+            "actor": "admin",
+            "action": "update_profile",
+            "detail": "تم تحديث بيانات الحساب",
+            "created_at": "2026-08-19 21:05:41"
+        },
+        {
+            "actor": "admin",
+            "action": "update_profile",
+            "detail": "تم تحديث بيانات الحساب",
+            "created_at": "2026-08-19 21:05:51"
         }
     ],
     "coupons": [

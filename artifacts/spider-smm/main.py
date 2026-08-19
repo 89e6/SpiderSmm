@@ -76,6 +76,10 @@ def user_discount(db, username):
     """الخصم الوحيد المسموح به هو كوبون يحدده المالك."""
     return 0
 
+def telegram_url(db):
+    value = str(db.get("site_settings", {}).get("telegram_url", "")).strip()
+    return value if value.startswith(("http://", "https://")) else f"https://t.me/{TELEGRAM_USER}"
+
 def notify(db, username, title, message):
     db.setdefault("notifications", []).append({
         "id": secrets.token_hex(6), "user": username, "title": title,
@@ -104,7 +108,8 @@ def load_db():
             "notifications": [], "audit_logs": [], "referral_percent": 5,
             "category_images": {}, "providers": [], "site_settings": {
                 "site_name": SITE_NAME, "support_email": "", "maintenance_message": "",
-                "allow_registration": True, "default_language": "ar"
+                "allow_registration": True, "default_language": "ar",
+                "telegram_url": f"https://t.me/{TELEGRAM_USER}"
             }
         }
         save_db(data)
@@ -139,8 +144,12 @@ def load_db():
     data.setdefault("providers", [])
     data.setdefault("site_settings", {
         "site_name": SITE_NAME, "support_email": "", "maintenance_message": "",
-        "allow_registration": True, "default_language": "ar"
+        "allow_registration": True, "default_language": "ar",
+        "telegram_url": f"https://t.me/{TELEGRAM_USER}"
     })
+    if "telegram_url" not in data["site_settings"]:
+        data["site_settings"]["telegram_url"] = f"https://t.me/{TELEGRAM_USER}"
+        changed = True
     data.setdefault("announcement", "مرحباً بك في عالم الفخامة الرقمية!")
     data.setdefault("is_active", True)
     data.setdefault("default_language", "ar")
@@ -461,7 +470,7 @@ def get_master_style():
             .order-row {{ align-items:flex-start; }} .floating-tg {{ bottom:96px; left:14px; }}
         }}
     </style>
-    <a href="https://t.me/{TELEGRAM_USER}" class="floating-tg" target="_blank"><i class="fab fa-telegram-plane"></i></a>
+    <a href="{h(telegram_url(db))}" class="floating-tg" target="_blank" rel="noopener noreferrer" aria-label="قناة التليجرام"><i class="fab fa-telegram-plane"></i></a>
     """
 
 # --- [ 4. الواجهات ] ---
@@ -661,19 +670,15 @@ def get_welcome_page(error=""):
                 button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري فتح Google...';
                 try {{
                     const clerk = await loadClerk();
-                    await clerk.openSignIn({{
-                        oauthFlow: 'popup',
-                        appearance: {{
-                            variables: {{ colorPrimary: '#f39c12', colorBackground: '#0c1526', colorForeground: '#fff', fontFamily: 'Cairo' }},
-                            elements: {{ card: 'rounded-3xl', formButtonPrimary: 'bg-orange-400 text-black', socialButtonsBlockButton: 'rounded-xl' }}
-                        }}
-                    }});
-                    if (clerk.session) {{
-                        const response = await fetch('/clerk_bridge?session_id=' + encodeURIComponent(clerk.session.id));
-                        if (response.redirected) window.location.href = response.url;
-                        else window.location.reload();
+                    const callbackUrl = window.location.origin + '/clerk_callback';
+                    if (clerk.client && clerk.client.signIn && clerk.client.signIn.authenticateWithRedirect) {{
+                        await clerk.client.signIn.authenticateWithRedirect({{
+                            strategy: 'oauth_google',
+                            redirectUrl: callbackUrl,
+                            redirectUrlComplete: callbackUrl
+                        }});
                     }} else {{
-                        button.disabled = false; button.innerHTML = original;
+                        await clerk.openSignIn({{ oauthFlow: 'redirect', redirectUrl: callbackUrl }});
                     }}
                 }} catch (error) {{
                     button.disabled = false; button.innerHTML = original;
@@ -684,6 +689,53 @@ def get_welcome_page(error=""):
     </body>
     </html>
     """
+
+def get_clerk_callback_page():
+    return f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">{get_master_style()}</head><body>
+    <main class="card" style="max-width:520px;margin:18vh auto;text-align:center;">
+        <i class="fas fa-spinner fa-spin" style="font-size:34px;color:var(--accent);"></i>
+        <h2>جاري تأكيد تسجيل الدخول</h2>
+        <p id="clerk-status" class="muted">لحظات وننقلك إلى حسابك...</p>
+    </main>
+    <script>
+        let clerkReady = null;
+        function loadClerk() {{
+            if (!{json.dumps(bool(CLERK_PUBLISHABLE_KEY))}) return Promise.reject(new Error('clerk_not_configured'));
+            if (window.Clerk) return Promise.resolve(window.Clerk);
+            if (clerkReady) return clerkReady;
+            clerkReady = new Promise((resolve, reject) => {{
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
+                script.async = true;
+                script.onload = async () => {{
+                    try {{
+                        window.Clerk = new Clerk({json.dumps(CLERK_PUBLISHABLE_KEY)});
+                        await window.Clerk.load();
+                        resolve(window.Clerk);
+                    }} catch (error) {{ reject(error); }}
+                }};
+                script.onerror = reject;
+                document.head.appendChild(script);
+            }});
+            return clerkReady;
+        }}
+        async function finishGoogleLogin() {{
+            try {{
+                const clerk = await loadClerk();
+                if (typeof clerk.handleRedirectCallback === 'function') {{
+                    await clerk.handleRedirectCallback();
+                }}
+                await clerk.load();
+                const session = clerk.session || (clerk.client && clerk.client.lastActiveSession);
+                if (!session || !session.id) throw new Error('لم يتم العثور على جلسة Google');
+                window.location.replace('/clerk_bridge?session_id=' + encodeURIComponent(session.id));
+            }} catch (error) {{
+                document.getElementById('clerk-status').textContent = 'تعذر إكمال تسجيل الدخول عبر Google. ارجع وحاول مرة أخرى.';
+            }}
+        }}
+        finishGoogleLogin();
+    </script>
+    </body></html>"""
     
 def get_forgot_password_page(message=""):
     return f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">{get_master_style()}</head><body>
@@ -797,7 +849,7 @@ def get_settings_page(db, user):
         </div>
         <div class="settings-group"><div class="settings-title">الدعم والمعلومات</div><div class="settings-list">
             <a href="/support" class="settings-item"><i class="fas fa-headset"></i><span class="text">تذاكر الدعم الفني</span><i class="fas fa-chevron-left chevron"></i></a>
-            <a href="https://t.me/{TELEGRAM_USER}" target="_blank" class="settings-item"><i class="fab fa-telegram-plane"></i><span class="text">قناتنا على التليجرام</span><i class="fas fa-chevron-left chevron"></i></a>
+            <a href="{h(telegram_url(db))}" target="_blank" rel="noopener noreferrer" class="settings-item"><i class="fab fa-telegram-plane"></i><span class="text">قناتنا على التليجرام</span><i class="fas fa-chevron-left chevron"></i></a>
             <a href="/terms" class="settings-item"><i class="fas fa-info-circle"></i><span class="text">شروط الاستخدام</span><i class="fas fa-chevron-left chevron"></i></a>
         </div></div>
         <div class="settings-group" style="margin-bottom:120px;"><div class="settings-list"><a href="/logout" class="settings-item" style="color:#ff4757;"><i class="fas fa-sign-out-alt" style="color:#ff4757;"></i><span class="text">تسجيل الخروج</span></a></div></div>
@@ -1066,7 +1118,7 @@ def get_admin_settings_page(db):
     settings = db.get("site_settings", {})
     return admin_layout("إعدادات المنصة", f"""<style>.settings-tabs{{display:flex;gap:7px;overflow:auto;margin-bottom:16px}}.settings-tabs a{{padding:10px 14px;border-radius:12px;text-decoration:none;background:rgba(111,209,215,.07);border:1px solid var(--border);font-size:11px;color:var(--muted);white-space:nowrap}}.settings-tabs a.active{{color:#17202b;background:var(--accent);border-color:var(--accent);font-weight:900}}.settings-card{{background:rgba(8,17,30,.25);border:1px solid var(--border);border-radius:18px;padding:16px;margin-top:14px}}.settings-card h4{{margin:0 0 5px;color:var(--accent)}}.settings-card p{{margin:0 0 14px;color:var(--muted);font-size:11px}}</style>
     <div class="settings-tabs"><a class="active" href="/admin_settings">العامة</a><a href="/admin_security">الأمان والنشاط</a><a href="/admin_backup">النسخ الاحتياطي</a><a href="/admin_notifications">الإشعارات</a></div>
-    <div class="card"><div class="section-head"><div><div class="eyebrow">هوية المنصة</div><h3 style="margin:3px 0;">الإعدادات العامة</h3></div><i class="fas fa-sliders" style="color:var(--accent);font-size:21px;"></i></div><form action="/admin_action" method="GET"><input type="hidden" name="type" value="site_settings"><div class="settings-card"><h4>الاسم والمراسلة</h4><p>هذه البيانات تظهر في العناوين ورسائل الدعم والتنبيهات.</p><input name="site_name" value="{h(settings.get('site_name', SITE_NAME))}" placeholder="اسم المنصة"><input name="support_email" type="email" value="{h(settings.get('support_email',''))}" placeholder="بريد الدعم"></div><div class="settings-card"><h4>وضع الموقع</h4><p>اكتب رسالة تظهر عند تحويل الموقع إلى الصيانة.</p><textarea name="maintenance_message" placeholder="رسالة وضع الصيانة">{h(settings.get('maintenance_message',''))}</textarea><label class="settings-item" style="margin-top:12px;"><input type="checkbox" name="allow_registration" {'checked' if settings.get('allow_registration', True) else ''} style="width:auto;margin:0;"> السماح بتسجيل حسابات جديدة</label></div><button class="btn-send" style="width:100%;margin-top:17px;"><i class="fas fa-save"></i> حفظ الإعدادات</button></form></div>
+     <div class="card"><div class="section-head"><div><div class="eyebrow">هوية المنصة</div><h3 style="margin:3px 0;">الإعدادات العامة</h3></div><i class="fas fa-sliders" style="color:var(--accent);font-size:21px;"></i></div><form action="/admin_action" method="GET"><input type="hidden" name="type" value="site_settings"><div class="settings-card"><h4>الاسم والمراسلة</h4><p>هذه البيانات تظهر في العناوين ورسائل الدعم والتنبيهات.</p><input name="site_name" value="{h(settings.get('site_name', SITE_NAME))}" placeholder="اسم المنصة"><input name="support_email" type="email" value="{h(settings.get('support_email',''))}" placeholder="بريد الدعم"><input name="telegram_url" type="url" value="{h(settings.get('telegram_url', f'https://t.me/{TELEGRAM_USER}'))}" placeholder="رابط قناة التليجرام"><p style="margin:5px 0 0;">يظهر هذا الرابط عند الضغط على أيقونة التليجرام أسفل الواجهة الرئيسية.</p></div><div class="settings-card"><h4>وضع الموقع</h4><p>اكتب رسالة تظهر عند تحويل الموقع إلى الصيانة.</p><textarea name="maintenance_message" placeholder="رسالة وضع الصيانة">{h(settings.get('maintenance_message',''))}</textarea><label class="settings-item" style="margin-top:12px;"><input type="checkbox" name="allow_registration" {'checked' if settings.get('allow_registration', True) else ''} style="width:auto;margin:0;"> السماح بتسجيل حسابات جديدة</label></div><button class="btn-send" style="width:100%;margin-top:17px;"><i class="fas fa-save"></i> حفظ الإعدادات</button></form></div>
     <div class="card"><div class="section-head"><div><h3>اختصارات الإعدادات</h3><p class="muted">الوصول السريع للأقسام الحساسة.</p></div></div><div class="quick-links"><a href="/admin_backup"><i class="fas fa-database"></i> نسخة احتياطية</a><a href="/admin_security"><i class="fas fa-shield-halved"></i> سجل النشاط والأمان</a></div></div>""")
 
 def get_admin_security_page(db):
@@ -1735,6 +1787,10 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
             else: res(get_welcome_page("اسم المستخدم أو كلمة المرور غير صحيحة"))
             return
 
+        if p == "/clerk_callback":
+            res(get_clerk_callback_page())
+            return
+
         if p == "/clerk_bridge":
             session_id = q.get("session_id", [""])[0].strip()
             clerk_user = bridge_clerk_session(db, session_id) if session_id else None
@@ -2366,6 +2422,8 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                 settings = db.setdefault("site_settings", {})
                 settings["site_name"] = q.get("site_name", [SITE_NAME])[0].strip()[:80] or SITE_NAME
                 settings["support_email"] = q.get("support_email", [""])[0].strip()[:120]
+                telegram = q.get("telegram_url", [f"https://t.me/{TELEGRAM_USER}"])[0].strip()[:500]
+                settings["telegram_url"] = telegram if telegram.startswith(("http://", "https://")) else f"https://t.me/{TELEGRAM_USER}"
                 settings["maintenance_message"] = q.get("maintenance_message", [""])[0].strip()[:240]
                 settings["allow_registration"] = "allow_registration" in q
                 audit(db, user, "update_site_settings", "تم تحديث إعدادات المنصة")
