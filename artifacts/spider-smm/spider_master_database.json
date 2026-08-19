@@ -2,15 +2,52 @@
     "users": {
         "admin": {
             "pass": "a24d8b3fdcd24387f3f1903aa3c796a5a011cc8ef0e13855667d8d517112989d",
-            "balance": 5.0,
+            "balance": 4.982,
             "is_admin": true,
             "phone": "000",
             "email": "",
-            "theme": "dark"
+            "theme": "light"
+        },
+        "N1": {
+            "pass": "a24d8b3fdcd24387f3f1903aa3c796a5a011cc8ef0e13855667d8d517112989d",
+            "balance": 0.0,
+            "is_admin": false,
+            "phone": "07706362760",
+            "email": "",
+            "lang": "ar",
+            "referral_code": "N1-DE74",
+            "referred_by": "",
+            "referrals_earnings": 0.0,
+            "created_at": "2026-08-19 12:04:38"
         }
     },
-    "services": [],
-    "orders": [],
+    "services": [
+        {
+            "id": "1",
+            "name": "تليجرام ",
+            "cat": "متابعين",
+            "image_url": "",
+            "price": 0.6,
+            "remote_id": "16990",
+            "api_url": "https://kd1s.com/api/v2",
+            "api_key": "eaa60cb8bdf4a50849a5c3b656068681"
+        }
+    ],
+    "orders": [
+        {
+            "id": "b9ff7b52f59d",
+            "user": "admin",
+            "sid": "1",
+            "svc": "تليجرام ",
+            "qty": 30,
+            "link": "https://t.me/SmmSpider",
+            "cost": 0.018,
+            "status": "قيد التنفيذ",
+            "remote_id": 13772890,
+            "created_at": "2026-08-19 12:56:41",
+            "discount": 0
+        }
+    ],
     "announcement": "| كود خصم على كل الخدمات صار جاهز |",
     "is_active": true,
     "notifications": [
@@ -51,8 +88,16 @@
             "user": "admin",
             "title": "تحديث الرصيد",
             "message": "تم تعديل رصيدك بمبلغ $5.00",
-            "read": false,
+            "read": true,
             "created_at": "2026-08-19 11:38:54"
+        },
+        {
+            "id": "9cd82877f79d",
+            "user": "admin",
+            "title": "تم استلام طلبك",
+            "message": "طلب تليجرام  قيد التنفيذ الآن",
+            "read": true,
+            "created_at": "2026-08-19 12:56:41"
         }
     ],
     "audit_logs": [
@@ -235,6 +280,30 @@
             "action": "adjust_balance",
             "detail": "تم تعديل رصيد admin بمقدار $5.00",
             "created_at": "2026-08-19 11:38:54"
+        },
+        {
+            "actor": "N1",
+            "action": "register",
+            "detail": "تم إنشاء حساب جديد",
+            "created_at": "2026-08-19 12:04:38"
+        },
+        {
+            "actor": "admin",
+            "action": "update_profile",
+            "detail": "تم تحديث بيانات الحساب",
+            "created_at": "2026-08-19 12:46:33"
+        },
+        {
+            "actor": "admin",
+            "action": "add_service",
+            "detail": "تليجرام ",
+            "created_at": "2026-08-19 12:54:49"
+        },
+        {
+            "actor": "admin",
+            "action": "create_order",
+            "detail": "تم إنشاء طلب للخدمة تليجرام ",
+            "created_at": "2026-08-19 12:56:41"
         }
     ],
     "coupons": [
