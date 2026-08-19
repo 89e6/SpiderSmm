@@ -72,15 +72,9 @@ def money(value):
 def make_referral_code(username):
     return f"{str(username).upper()[:8]}-{secrets.token_hex(2).upper()}"
 
-def tier_for_user(db, username):
-    spent = sum(float(o.get("cost", 0)) for o in db.get("orders", []) if o.get("user") == username)
-    if spent >= 500:
-        return "بلاتيني", 15
-    if spent >= 200:
-        return "ذهبي", 10
-    if spent >= 50:
-        return "فضي", 5
-    return "برونزي", 0
+def user_discount(db, username):
+    """الخصم الوحيد المسموح به هو كوبون يحدده المالك."""
+    return 0
 
 def notify(db, username, title, message):
     db.setdefault("notifications", []).append({
@@ -157,7 +151,9 @@ def load_db():
             "lang": "ar", "referral_code": make_referral_code(username),
             "created_at": now(), "referrals_earnings": 0.0
             , "last_login": "", "role": "admin" if account.get("is_admin") else "client",
-            "notifications_enabled": True, "theme": "dark"
+            "notifications_enabled": True, "theme": "dark", "avatar_url": "",
+            "avatar_gallery": [], "guarantee_enabled": False,
+            "email_verified": False, "phone_verified": False, "frozen": False
         }
         for key, value in defaults.items():
             if key not in account:
@@ -181,6 +177,18 @@ def load_db():
             changed = True
         if "description" not in service:
             service["description"] = ""
+            changed = True
+        if "start_time" not in service:
+            service["start_time"] = "فوري إلى 15 دقيقة"
+            changed = True
+        if "last_updated" not in service:
+            service["last_updated"] = now()
+            changed = True
+        if "rating" not in service:
+            service["rating"] = 0
+            changed = True
+        if "rating_count" not in service:
+            service["rating_count"] = 0
             changed = True
     if not isinstance(data.get("category_images"), dict):
         data["category_images"] = {}
@@ -265,6 +273,14 @@ def sync_order(db, order, notify_user=True):
     if changed:
         order["status"] = status
         order["status_updated_at"] = now()
+        if status == "ملغى":
+            account = db.get("users", {}).get(order.get("user"), {})
+            if account.get("guarantee_enabled") and not order.get("guarantee_refunded"):
+                refund = float(order.get("cost", 0))
+                account["balance"] = float(account.get("balance", 0)) + refund
+                order["guarantee_refunded"] = True
+                order["refund_at"] = now()
+                notify(db, order["user"], "تم تفعيل ضمان الطلب", f"أُعيدت {money(refund)} إلى رصيدك بعد إلغاء المزود للطلب")
         if notify_user:
             notify(db, order["user"], "تحديث حالة الطلب", f"طلبك {order.get('svc')} أصبح: {status}")
     return changed, status
@@ -576,8 +592,8 @@ def get_welcome_page(error=""):
                             <div class="field"><i class="fas fa-user-plus"></i><input type="text" name="nu" placeholder="اختر اسم مستخدم" autocomplete="username" pattern="[A-Za-z0-9_-]+" required></div>
                             <div class="field"><i class="fas fa-key"></i><input id="register-pass" type="password" name="np" placeholder="أنشئ كلمة مرور قوية" autocomplete="new-password" minlength="6" required oninput="passwordStrength(this.value)"><button type="button" class="password-toggle" aria-label="إظهار كلمة المرور" onclick="togglePassword('register-pass', this)"><i class="fas fa-eye"></i></button></div>
                             <div class="strength"><span id="strength-label">قوة كلمة المرور</span><div class="strength-bar"><i id="strength-fill"></i></div></div>
-                            <div class="field"><i class="fas fa-envelope"></i><input type="email" name="em" placeholder="البريد الإلكتروني" autocomplete="email" required></div>
-                            <div class="field"><i class="fas fa-phone"></i><input type="tel" name="ph" placeholder="رقم الهاتف للتواصل" autocomplete="tel" required></div>
+                            <div class="field"><i class="fas fa-envelope"></i><input type="email" name="em" placeholder="البريد الإلكتروني (اختياري)" autocomplete="email"></div>
+                            <div class="field"><i class="fas fa-phone"></i><input type="tel" name="ph" placeholder="رقم الهاتف (اختياري — اختر واحداً على الأقل)" autocomplete="tel"></div>
                             <div class="field"><i class="fas fa-key"></i><input id="register-confirm" type="password" name="cp" placeholder="تأكيد كلمة المرور" autocomplete="new-password" minlength="6" required></div>
                             <div class="field"><i class="fas fa-user-group"></i><input id="register-ref" type="text" name="ref" placeholder="كود الإحالة (اختياري)"></div>
                             <label style="display:flex;gap:8px;align-items:flex-start;color:#91a0b8;font-size:10px;margin:12px 0;"><input type="checkbox" name="terms" required style="width:auto;margin:3px 0 0;"> أوافق على شروط الاستخدام وأتعهد باستخدام الخدمات بشكل قانوني.</label>
@@ -672,8 +688,8 @@ def get_welcome_page(error=""):
 def get_forgot_password_page(message=""):
     return f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">{get_master_style()}</head><body>
     <div class="header"><b style="color:var(--accent);font-size:22px;">استرجاع كلمة المرور</b><a href="/" style="color:white;font-size:24px;"><i class="fas fa-arrow-right"></i></a></div>
-    <div class="card"><p style="opacity:.7;">استخدم اسم المستخدم ورقم الهاتف المسجل لإنشاء كلمة مرور جديدة.</p>{f'<p style="color:#2ecc71;">{h(message)}</p>' if message else ''}
-    <form action="/forgot_action" method="GET"><input name="user" placeholder="اسم المستخدم" required><input name="phone" placeholder="رقم الهاتف" required><input type="password" name="new" placeholder="كلمة المرور الجديدة" minlength="6" required><button class="btn-send">تحديث كلمة المرور</button></form></div>
+    <div class="card"><p style="opacity:.7;">استخدم اسم المستخدم ومعه البريد أو رقم الهاتف المسجل.</p>{f'<p style="color:#2ecc71;">{h(message)}</p>' if message else ''}
+    <form action="/forgot_action" method="GET"><input name="user" placeholder="اسم المستخدم" required><input name="phone" placeholder="رقم الهاتف (اختياري)"><input name="email" type="email" placeholder="البريد الإلكتروني (اختياري)"><input type="password" name="new" placeholder="كلمة المرور الجديدة" minlength="6" required><button class="btn-send">تحديث كلمة المرور</button></form></div>
     </body></html>"""
 
 
@@ -700,7 +716,7 @@ def get_orders_page(db, user, message=""):
                 <div style="font-size:12px; opacity:0.6;">الكمية: {h(o.get('qty'))} | التكلفة: {money(o.get('cost'))}</div>
                 <div style="font-size:11px; opacity:0.45;">{h(o.get('created_at', ''))}</div>
             </div>
-            <div style="color:{status_color}; font-weight:bold; font-size:14px;text-align:left;">{h(status)}<br>{repeat_action}{cancel_action}</div>
+            <div style="color:{status_color}; font-weight:bold; font-size:14px;text-align:left;">{h(status)}<br>{repeat_action}{cancel_action}<a class="pill" style="margin-top:7px;color:var(--accent);" href="/receipt?id={h(o.get('id'))}" onclick="event.stopPropagation();">إيصال</a></div>
         </a>"""
     if not orders_html:
         orders_html = "<p style='text-align:center; opacity:0.5; margin-top:50px;'>ليس لديك طلبات سابقة</p>"
@@ -731,18 +747,40 @@ def get_orders_page(db, user, message=""):
 
 def get_settings_page(db, user):
     u = db["users"][user]
-    level, discount = tier_for_user(db, user)
+    discount = user_discount(db, user)
     unread = len([n for n in db.get("notifications", []) if n.get("user") == user and not n.get("read")])
+    avatar = str(u.get("avatar_url", "")).strip()
+    avatar_html = f'<img src="{h(avatar)}" alt="الصورة الشخصية" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--accent);" onerror="this.outerHTML=\'<i class=&quot;fas fa-user&quot; style=&quot;font-size:35px;color:var(--accent);&quot;></i>\'">' if avatar else '<i class="fas fa-user" style="font-size:35px;color:var(--accent);"></i>'
+    gallery = list(dict.fromkeys([str(x).strip() for x in u.get("avatar_gallery", []) if str(x).strip()]))[-8:]
+    gallery_html = "".join(f'<button type="button" onclick="document.querySelector(\'input[name=avatar_url]\').value=\'{h(url)}\'" style="border:1px solid var(--border);background:transparent;padding:3px;border-radius:50%;cursor:pointer;"><img src="{h(url)}" style="width:42px;height:42px;border-radius:50%;object-fit:cover;"></button>' for url in gallery)
     admin_item = f"""<a href="/admin_panel" class="settings-item"><i class="fas fa-user-shield"></i><span class="text">لوحة التحكم للإدارة</span><i class="fas fa-chevron-left chevron"></i></a>""" if u.get('is_admin') else ""
     return f"""<!DOCTYPE html><html lang="ar"><head><meta charset="UTF-8">{get_master_style()}</head><body>
         <div class="header"><div style="font-weight:900; color:var(--accent); font-size:22px;">{SITE_NAME}</div><a href="/" style="color:white; font-size:24px;"><i class="fas fa-times"></i></a></div>
         <div class="card" style="text-align:center;">
-            <div style="width:80px; height:80px; background:rgba(243,156,18,0.1); border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 15px; border:1px solid var(--accent);"><i class="fas fa-user" style="font-size:35px; color:var(--accent);"></i></div>
+            <div style="width:88px; height:88px; background:rgba(243,156,18,0.1); border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 15px; border:1px solid var(--accent);overflow:hidden;">{avatar_html}</div>
             <h2 style="margin:0;">{h(user)}</h2><div class="badge" style="margin-top:10px;">الرصيد: {money(u.get('balance'))}</div>
-            <div style="margin-top:12px; opacity:.75;">المستوى: <b>{level}</b> · خصمك الحالي: {discount}%</div>
+            <div style="margin-top:12px; opacity:.75;">الخصم متاح فقط عبر كوبونات يحددها المالك</div>
         </div>
          <div class="card"><div class="section-head"><div><div class="eyebrow">بيانات الحساب</div><h3 style="margin:3px 0 0;">تحديث معلوماتك</h3></div><i class="fas fa-user-pen" style="color:var(--accent);font-size:20px;"></i></div>
-           <form action="/profile_action" method="GET"><input name="email" type="email" value="{h(u.get('email',''))}" placeholder="البريد الإلكتروني"><input name="phone" value="{h(u.get('phone',''))}" placeholder="رقم الهاتف"><select name="theme"><option value="dark" {'selected' if u.get('theme','dark') == 'dark' else ''}>الوضع الداكن</option><option value="light" {'selected' if u.get('theme') == 'light' else ''}>الوضع الفاتح</option></select><button class="btn-send">حفظ بيانات الحساب</button></form>
+           <form action="/profile_action" method="GET">
+             <input name="email" type="email" value="{h(u.get('email',''))}" placeholder="البريد الإلكتروني (اختياري)">
+             <input name="phone" value="{h(u.get('phone',''))}" placeholder="رقم الهاتف (اختياري)">
+             <input name="avatar_url" type="url" value="{h(u.get('avatar_url',''))}" placeholder="رابط صورتك الشخصية (اختياري)">
+             <select name="lang"><option value="ar" {'selected' if u.get('lang','ar') == 'ar' else ''}>العربية</option><option value="en" {'selected' if u.get('lang') == 'en' else ''}>English</option></select>
+             <select name="theme"><option value="dark" {'selected' if u.get('theme','dark') == 'dark' else ''}>الوضع الداكن</option><option value="light" {'selected' if u.get('theme') == 'light' else ''}>الوضع الفاتح</option></select>
+             <button class="btn-send">حفظ بيانات الحساب</button>
+           </form>
+           {f'<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:10px;"><span class="muted" style="font-size:11px;width:100%;">معرض صورك — اضغط على صورة لاختيارها</span>{gallery_html}</div>' if gallery_html else '<p class="muted" style="font-size:11px;">أضف رابط صورة، وستُحفظ تلقائياً في معرضك.</p>'}
+           <div style="margin-top:16px;padding:14px;border:1px solid var(--border);border-radius:16px;text-align:right;">
+             <b><i class="fas fa-shield-halved" style="color:var(--green);"></i> ضمان الطلبات</b>
+             <p class="muted" style="font-size:12px;margin:5px 0 10px;">عند تفعيل الضمان، يرجع رصيد الطلب تلقائياً إذا ألغاه المزود.</p>
+             <form action="/profile_action" method="GET"><input type="hidden" name="guarantee" value="{'0' if u.get('guarantee_enabled') else '1'}"><button class="btn-quiet" style="width:100%;">{'إيقاف الضمان' if u.get('guarantee_enabled') else 'تفعيل الضمان'}</button></form>
+           </div>
+           <div style="margin-top:16px;padding:14px;border:1px solid var(--border);border-radius:16px;text-align:right;">
+             <b><i class="fas fa-circle-check" style="color:var(--cyan);"></i> بيانات التواصل</b>
+             <p class="muted" style="font-size:12px;margin:5px 0 0;">{('البريد مؤكد' if u.get('email_verified') else 'البريد غير مؤكد')} · {('الهاتف مؤكد' if u.get('phone_verified') else 'الهاتف غير مؤكد')}</p>
+           </div>
+           <form action="/profile_action" method="GET" style="margin-top:12px;"><input type="hidden" name="freeze" value="{'0' if u.get('frozen') else '1'}"><button class="btn-quiet" style="width:100%;color:var(--danger);border-color:rgba(237,125,134,.3);">{'إلغاء تجميد الحساب' if u.get('frozen') else 'تجميد الحساب مؤقتاً'}</button></form>
          </div>
          <div class="settings-group">
             <div class="settings-title">الحساب والمالية</div>
@@ -974,8 +1012,31 @@ def get_order_detail_page(db, user, order_id):
       <div style="height:10px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden;margin:20px 0 7px;"><div style="height:100%;width:{progress}%;background:linear-gradient(90deg,var(--cyan),var(--accent));border-radius:99px;"></div></div>
       <small style="color:var(--muted);">نسبة الإنجاز التقديرية: {progress}%</small>
       <div class="card" style="margin:18px 0 0;background:rgba(0,0,0,.12);"><div class="modal-detail-row"><span>رقم الطلب</span><b>{h(order_id)}</b></div><div class="modal-detail-row"><span>الكمية</span><b>{h(order.get('qty'))}</b></div><div class="modal-detail-row"><span>التكلفة</span><b>{money(order.get('cost'))}</b></div><div class="modal-detail-row"><span>الرابط</span><a href="{h(order.get('link'))}" target="_blank" style="color:var(--cyan);max-width:60%;overflow:hidden;text-overflow:ellipsis;">{h(order.get('link'))}</a></div><div class="modal-detail-row"><span>تاريخ الإنشاء</span><span>{h(order.get('created_at'))}</span></div></div>
-      <div class="quick-links"><a href="/repeat_order?id={h(order_id)}"><i class="fas fa-rotate-right"></i> إعادة الطلب</a><a href="/support?order={h(order_id)}"><i class="fas fa-headset"></i> فتح تذكرة</a></div>
+      <div class="quick-links"><a href="/repeat_order?id={h(order_id)}"><i class="fas fa-rotate-right"></i> إعادة الطلب</a><a href="/receipt?id={h(order_id)}"><i class="fas fa-file-invoice"></i> إيصال قابل للطباعة</a>{f'<a href="/rate_order?id={h(order_id)}&rating=5"><i class="fas fa-star"></i> قيّم الخدمة</a>' if "مكتمل" in status else ''}<a href="/support?order={h(order_id)}"><i class="fas fa-headset"></i> فتح تذكرة</a></div>
     </div><div class="bottom-nav"><a href="/" class="nav-item"><i class="fas fa-home"></i>الرئيسية</a><a href="/order_history" class="nav-item active"><i class="fas fa-history"></i>الطلبات</a><a href="/settings" class="nav-item"><i class="fas fa-cog"></i>الإعدادات</a></div></body></html>"""
+
+def get_receipt_page(db, user, order_id):
+    order = next((o for o in db.get("orders", []) if o.get("id") == order_id and o.get("user") == user), None)
+    if not order:
+        return get_orders_page(db, user, "الإيصال غير موجود")
+    return f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8">{get_master_style()}<style>@media print {{ .no-print {{display:none}} body {{background:#fff;color:#111}} .card {{box-shadow:none;border:1px solid #ddd}} }}</style></head><body>
+    <div class="header no-print"><b style="color:var(--accent);font-size:22px;">إيصال الطلب</b><a href="/order?id={h(order_id)}"><i class="fas fa-arrow-right"></i></a></div>
+    <div class="card" style="max-width:620px;margin:38px auto;background:#fff;color:#111;">
+      <div style="text-align:center;border-bottom:1px solid #ddd;padding-bottom:18px;"><h1 style="margin:0;">{SITE_NAME}</h1><p>إيصال خدمة رقم #{h(order_id)}</p></div>
+      <div style="display:grid;gap:12px;margin-top:22px;"><div><b>الخدمة:</b> {h(order.get('svc'))}</div><div><b>الكمية:</b> {h(order.get('qty'))}</div><div><b>الحالة:</b> {h(order.get('status'))}</div><div><b>التكلفة:</b> {money(order.get('cost'))}</div><div><b>التاريخ:</b> {h(order.get('created_at'))}</div><div style="word-break:break-all;"><b>الرابط:</b> {h(order.get('link'))}</div></div>
+      <button class="btn-send no-print" style="width:100%;margin-top:24px;" onclick="window.print()"><i class="fas fa-print"></i> طباعة / حفظ PDF</button>
+    </div></body></html>"""
+
+def provider_test(api_url, api_key):
+    try:
+        params = urllib.parse.urlencode({"key": api_key, "action": "balance"})
+        with urllib.request.urlopen(f"{api_url}?{params}", timeout=10) as response:
+            payload = json.loads(response.read().decode())
+        if "error" in payload:
+            return False, str(payload.get("error"))
+        return True, f"الاتصال ناجح · الرصيد: {payload.get('balance', 'غير متاح')}"
+    except Exception as exc:
+        return False, str(exc)
 
 def get_admin_orders_page(db):
     query = "".join([])  # keeps the page server-rendered and filterable without exposing provider keys
@@ -994,7 +1055,7 @@ def get_admin_users_page(db):
 
 def get_admin_providers_page(db):
     providers = db.get("providers", [])
-    rows = "".join(f"""<tr><td>{h(p.get('name'))}</td><td>{h(p.get('url'))}</td><td>{h(p.get('status','فعال'))}</td><td>{h(p.get('services_count',0))}</td><td><a class="pill" style="color:var(--danger);" href="/admin_action?type=del_provider&id={h(p.get('id'))}" onclick="return confirm('حذف المزود؟')">حذف</a></td></tr>""" for p in providers) or "<tr><td colspan='5'>لا يوجد مزودون. يمكنك إضافة خدمات محلية أو مزود جديد.</td></tr>"
+    rows = "".join(f"""<tr><td>{h(p.get('name'))}</td><td>{h(p.get('url'))}</td><td>{h(p.get('status','فعال'))}</td><td>{h(p.get('services_count',0))}</td><td><a class="pill" href="/admin_action?type=test_provider&id={h(p.get('id'))}">اختبار الاتصال</a> <a class="pill" style="color:var(--danger);" href="/admin_action?type=del_provider&id={h(p.get('id'))}" onclick="return confirm('حذف المزود؟')">حذف</a></td></tr>""" for p in providers) or "<tr><td colspan='5'>لا يوجد مزودون. يمكنك إضافة خدمات محلية أو مزود جديد.</td></tr>"
     return admin_layout("إدارة المزودين", f"""<div class="card"><h3>إضافة مزود خدمة</h3><form action="/admin_action" method="GET"><input type="hidden" name="type" value="add_provider"><input name="name" placeholder="اسم المزود" required><input type="url" name="url" placeholder="رابط API" required><input type="password" name="key" placeholder="مفتاح API" required><button class="btn-send">حفظ المزود</button></form></div><div class="card"><h3>المزودون الحاليون</h3><div class="table-wrap"><table class="admin-table"><tr><th>الاسم</th><th>الرابط</th><th>الحالة</th><th>الخدمات</th><th>إجراء</th></tr>{rows}</table></div></div>""")
 
 def get_admin_notifications_page(db):
@@ -1016,7 +1077,7 @@ def get_admin_service_edit_page(db, service_id):
     service = next((s for s in db.get("services", []) if str(s.get("id")) == str(service_id)), None)
     if not service:
         return admin_layout("الخدمة غير موجودة", "<div class='card'>تعذر العثور على الخدمة.</div>")
-    return admin_layout("تعديل الخدمة", f"""<div class="card"><h3>{h(service.get('name'))}</h3><form action="/admin_action" method="GET"><input type="hidden" name="type" value="edit_service"><input type="hidden" name="id" value="{h(service_id)}"><input name="name" value="{h(service.get('name'))}" placeholder="اسم الخدمة" required><input name="cat" value="{h(service.get('cat'))}" placeholder="الفئة" required><textarea name="description" placeholder="وصف الخدمة">{h(service.get('description', ''))}</textarea><input name="price" type="number" step="0.01" min="0" value="{h(service.get('price'))}" placeholder="السعر لكل 1000" required><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><input name="min_qty" type="number" min="1" value="{h(service.get('min_qty', 1))}" placeholder="أقل كمية" required><input name="max_qty" type="number" min="1" value="{h(service.get('max_qty', 1000000))}" placeholder="أعلى كمية" required></div><input name="remote_id" value="{h(service.get('remote_id'))}" placeholder="معرف المزود" required><select name="active"><option value="1" {'selected' if service.get('active', True) else ''}>الخدمة مفعلة</option><option value="0" {'selected' if not service.get('active', True) else ''}>الخدمة متوقفة</option></select><button class="btn-send">حفظ التعديلات</button></form></div>""")
+    return admin_layout("تعديل الخدمة", f"""<div class="card"><h3>{h(service.get('name'))}</h3><form action="/admin_action" method="GET"><input type="hidden" name="type" value="edit_service"><input type="hidden" name="id" value="{h(service_id)}"><input name="name" value="{h(service.get('name'))}" placeholder="اسم الخدمة" required><input name="cat" value="{h(service.get('cat'))}" placeholder="الفئة" required><textarea name="description" placeholder="وصف الخدمة">{h(service.get('description', ''))}</textarea><input name="price" type="number" step="0.01" min="0" value="{h(service.get('price'))}" placeholder="السعر لكل 1000" required><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><input name="min_qty" type="number" min="1" value="{h(service.get('min_qty', 1))}" placeholder="أقل كمية" required><input name="max_qty" type="number" min="1" value="{h(service.get('max_qty', 1000000))}" placeholder="أعلى كمية" required></div><input name="start_time" value="{h(service.get('start_time', 'فوري إلى 15 دقيقة'))}" placeholder="وقت البدء المتوقع"><input name="remote_id" value="{h(service.get('remote_id'))}" placeholder="معرف المزود" required><select name="active"><option value="1" {'selected' if service.get('active', True) else ''}>الخدمة مفعلة</option><option value="0" {'selected' if not service.get('active', True) else ''}>الخدمة متوقفة</option></select><button class="btn-send">حفظ التعديلات</button></form></div>""")
 
 def get_admin_page(db):
     users, orders, services = db.get("users", {}), db.get("orders", []), db.get("services", [])
@@ -1180,7 +1241,7 @@ def get_admin_page_v2(db):
         thumb = f'<img src="{h(image_url)}" alt="" onerror="this.style.display=\'none\'">' if image_url else '<i class="fas fa-layer-group"></i>'
         service_rows += f"""<article class="service-row">
             <div class="service-thumb">{thumb}</div>
-            <div class="service-info"><b>{h(s.get("name"))}</b><span>{h(s.get("cat", "عام"))} · {money(s.get("price"))} لكل 1000</span><small>{h(s.get("description", "")) or "بدون وصف"} · الكمية: {h(s.get("min_qty", 1))} - {h(s.get("max_qty", 1000000))}</small></div>
+            <div class="service-info"><b><input type="checkbox" name="ids" value="{h(s.get("id"))}" form="bulk-services" style="width:auto;margin:0 6px 0 0;">{h(s.get("name"))}</b><span>{h(s.get("cat", "عام"))} · {money(s.get("price"))} لكل 1000 · {'مفعلة' if s.get('active', True) else 'متوقفة'}</span><small>{h(s.get("description", "")) or "بدون وصف"} · الكمية: {h(s.get("min_qty", 1))} - {h(s.get("max_qty", 1000000))} · البدء: {h(s.get("start_time", "فوري إلى 15 دقيقة"))}</small><small>التقييم: {'★' * round(float(s.get('rating', 0) or 0)) or '—'} · آخر تحديث: {h(s.get("last_updated", "—"))}</small></div>
             <div class="service-actions">
               <form action="/admin_action" method="GET" class="image-form">
                 <input type="hidden" name="type" value="update_svc_image"><input type="hidden" name="id" value="{h(s.get("id"))}">
@@ -1253,7 +1314,9 @@ def get_admin_page_v2(db):
              <section class="card admin-card"><div class="section-head"><div><h2>صور الفئات</h2><p class="lead">اختر صورة مستقلة لكل فئة لتظهر أولاً في كتالوج العملاء.</p></div><i class="fas fa-images" style="color:var(--cyan);font-size:21px;"></i></div>
                <div class="category-admin-list">{category_rows or '<div class="empty-state">أضف خدمة أولاً لتظهر فئاتها هنا.</div>'}</div>
              </section>
-             <section class="card admin-card"><div class="section-head"><div><h2>الخدمات والصور</h2><p class="lead">الصورة المختارة تظهر في كتالوج العملاء وبجوار الخدمة.</p></div><span class="pill">{len(services)} خدمة</span></div><div>{service_rows}</div></section>
+             <section class="card admin-card"><div class="section-head"><div><h2>الخدمات والصور</h2><p class="lead">الصورة المختارة تظهر في كتالوج العملاء وبجوار الخدمة.</p></div><span class="pill">{len(services)} خدمة</span></div>
+               <form id="bulk-services" action="/admin_action" method="GET" style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px;"><input type="hidden" name="type" value="bulk_services"><button name="active" value="1" class="mini-save">تفعيل المحدد</button><button name="active" value="0" class="gallery-trigger">إيقاف المحدد</button><small class="field-note">حدد الخدمات من المربعات ثم اختر الإجراء.</small></form>
+               <div>{service_rows}</div></section>
           </div>
           <div>
              <section class="card admin-card" id="balances"><div class="section-head"><div><h2>إدارة الأرصدة</h2><p class="lead">ابحث عن حساب وعدّل رصيده بسرعة.</p></div><i class="fas fa-coins" style="color:var(--accent);font-size:21px;"></i></div>
@@ -1299,7 +1362,7 @@ def get_user_page(db, user):
         save_db(db)
     cats = sorted(list(set([s.get('cat', 'عام') for s in svcs])))
     category_images = db.get("category_images", {})
-    level, discount = tier_for_user(db, user)
+    discount = user_discount(db, user)
     unread = len([n for n in db.get("notifications", []) if n.get("user") == user and not n.get("read")])
     # نسخة العرض العامة لا تحتوي على api_url أو api_key.
     category_image_map = {str(cat): str(image or "").strip() for cat, image in category_images.items()}
@@ -1307,8 +1370,11 @@ def get_user_page(db, user):
          {"id": str(s.get("id", "")), "name": s.get("name", ""), "cat": s.get("cat", "عام"),
          "image_url": s.get("image_url", "") or category_image_map.get(str(s.get("cat", "عام")), ""),
           "price": s.get("price", 0), "min_qty": int(s.get("min_qty", 1) or 1),
-          "max_qty": int(s.get("max_qty", 1000000) or 1000000),
-          "description": s.get("description", "")}
+         "max_qty": int(s.get("max_qty", 1000000) or 1000000),
+          "description": s.get("description", ""),
+          "start_time": s.get("start_time", "فوري إلى 15 دقيقة"),
+          "rating": float(s.get("rating", 0) or 0), "rating_count": int(s.get("rating_count", 0) or 0),
+          "last_updated": s.get("last_updated", "")}
         for s in svcs
     ]
     category_data = []
@@ -1660,7 +1726,7 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
         # 1. الصفحات العامة (بدون تسجيل دخول)
         if p == "/auth":
             u_in, p_in = q.get('user',[''])[0], q.get('pass',[''])[0]
-            if u_in in db['users'] and db['users'][u_in]['pass'] == hash_pass(p_in):
+            if u_in in db['users'] and not db['users'][u_in].get("frozen") and db['users'][u_in]['pass'] == hash_pass(p_in):
                 self.send_response(302)
                 self.send_header("Set-Cookie", f"session_user={urllib.parse.quote(u_in)}; Path=/; HttpOnly; SameSite=Lax")
                 self.send_header("Location", "/")
@@ -1688,12 +1754,14 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
             referral = q.get('ref', [''])[0].strip()
             if not db.get("site_settings", {}).get("allow_registration", True):
                 res(get_welcome_page("التسجيل مغلق مؤقتاً من إدارة المنصة"))
-            elif nu and len(np) >= 6 and np == confirm_password and email and "@" in email and "terms" in q and nu not in db['users'] and all(c.isalnum() or c in "_-" for c in nu):
+            elif nu and len(np) >= 6 and np == confirm_password and (not email or "@" in email) and (email or phone) and "terms" in q and nu not in db['users'] and all(c.isalnum() or c in "_-" for c in nu):
                 db['users'][nu] = {
                     "pass": hash_pass(np), "balance": 0.0, "is_admin": False,
                     "phone": phone, "email": email, "lang": "ar",
                     "referral_code": make_referral_code(nu), "referred_by": "",
-                    "referrals_earnings": 0.0, "created_at": now()
+                    "referrals_earnings": 0.0, "created_at": now(),
+                    "avatar_url": "", "avatar_gallery": [], "guarantee_enabled": False,
+                    "email_verified": False, "phone_verified": False, "frozen": False
                 }
                 if referral:
                     owner = next((name for name, account in db["users"].items() if str(account.get("referral_code", "")).upper() == referral.upper() and name != nu), None)
@@ -1715,7 +1783,8 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
             phone = q.get("phone", [""])[0].strip()
             new_password = q.get("new", [""])[0]
             account = db.get("users", {}).get(username)
-            if not account or account.get("phone", "") != phone:
+            email = q.get("email", [""])[0].strip().lower()
+            if not account or (phone and account.get("phone", "") != phone) or (email and account.get("email", "").lower() != email):
                 res(get_forgot_password_page("بيانات التحقق غير صحيحة"))
             elif len(new_password) < 6:
                 res(get_forgot_password_page("كلمة المرور يجب أن تكون 6 أحرف على الأقل"))
@@ -1754,8 +1823,7 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                     json_res({"status": "error", "message": f"كمية الخدمة يجب أن تكون بين {min_qty} و {max_qty}"})
                     return
                 base_cost = (float(svc.get('price', 0)) / 1000) * qty
-                level, tier_discount = tier_for_user(db, user)
-                discount = tier_discount
+                discount = user_discount(db, user)
                 coupon = next((c for c in db.get("coupons", []) if str(c.get("code", "")).upper() == coupon_code and c.get("active", True)), None)
                 if coupon and (not coupon.get("max_uses") or int(coupon.get("uses", 0)) < int(coupon.get("max_uses", 0))):
                     discount = min(100, discount + float(coupon.get("percent", 0)))
@@ -1909,6 +1977,18 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                 account["email"] = q.get("email", [""])[0].strip()[:120]
                 account["phone"] = q.get("phone", [""])[0].strip()[:40]
                 account["theme"] = q.get("theme", ["dark"])[0] if q.get("theme", ["dark"])[0] in ("dark", "light") else "dark"
+                account["lang"] = q.get("lang", ["ar"])[0] if q.get("lang", ["ar"])[0] in ("ar", "en") else "ar"
+                if "avatar_url" in q:
+                    avatar = q.get("avatar_url", [""])[0].strip()[:500]
+                    if avatar and not avatar.startswith(("http://", "https://")):
+                        avatar = ""
+                    account["avatar_url"] = avatar
+                    if avatar and avatar not in account.setdefault("avatar_gallery", []):
+                        account["avatar_gallery"].append(avatar)
+                if "guarantee" in q:
+                    account["guarantee_enabled"] = q.get("guarantee", ["0"])[0] == "1"
+                if "freeze" in q:
+                    account["frozen"] = q.get("freeze", ["0"])[0] == "1"
                 audit(db, user, "update_profile", "تم تحديث بيانات الحساب")
                 save_db(db)
             go("/settings")
@@ -1924,6 +2004,28 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
 
         if p == "/order":
             res(get_order_detail_page(db, user, q.get("id", [""])[0]))
+            return
+
+        if p == "/receipt":
+            res(get_receipt_page(db, user, q.get("id", [""])[0]))
+            return
+
+        if p == "/rate_order":
+            order_id = q.get("id", [""])[0]
+            try:
+                rating = max(1, min(5, int(q.get("rating", ["0"])[0])))
+            except ValueError:
+                rating = 0
+            order = next((o for o in db.get("orders", []) if o.get("id") == order_id and o.get("user") == user), None)
+            service = next((s for s in db.get("services", []) if str(s.get("id")) == str(order.get("sid"))) if order else None, None)
+            if order and service and "مكتمل" in str(order.get("status")) and rating:
+                count = int(service.get("rating_count", 0) or 0)
+                service["rating"] = round((float(service.get("rating", 0) or 0) * count + rating) / (count + 1), 2)
+                service["rating_count"] = count + 1
+                order["rated"] = True
+                notify(db, user, "شكراً لتقييمك", f"قيّمت خدمة {service.get('name')} بـ {rating}/5")
+                save_db(db)
+            go(f"/order?id={urllib.parse.quote(order_id)}")
             return
 
         if p == "/ticket_action":
@@ -2085,6 +2187,8 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                      "min_qty": max(1, int(q.get('min_qty', ['1'])[0] or 1)),
                      "max_qty": max(1, int(q.get('max_qty', ['1000000'])[0] or 1000000)),
                     "remote_id": q.get('sid', [''])[0],
+                    "start_time": q.get('start_time', ['فوري إلى 15 دقيقة'])[0].strip()[:80],
+                    "last_updated": now(), "rating": 0, "rating_count": 0,
                     "api_url": q.get('url', [''])[0], 
                     "api_key": q.get('key', [''])[0]
                 })
@@ -2099,6 +2203,17 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                     service["image_url"] = q.get("img", [""])[0].strip()
                     audit(db, user, "update_service_image", svc_id)
                     save_db(db)
+                go("/admin_panel")
+
+            elif t == "bulk_services":
+                active = q.get("active", ["1"])[0] == "1"
+                selected = set(q.get("ids", []))
+                for service in db.get("services", []):
+                    if not selected or str(service.get("id")) in selected:
+                        service["active"] = active
+                        service["last_updated"] = now()
+                audit(db, user, "bulk_services", "تحديث حالة مجموعة خدمات")
+                save_db(db)
                 go("/admin_panel")
 
             elif t == "update_cat_image":
@@ -2137,6 +2252,8 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                         pass
                     service["remote_id"] = q.get("remote_id", [service.get("remote_id", "")])[0].strip()
                     service["active"] = q.get("active", ["1"])[0] == "1"
+                    service["start_time"] = q.get("start_time", [service.get("start_time", "فوري إلى 15 دقيقة")])[0].strip()[:80]
+                    service["last_updated"] = now()
                     audit(db, user, "edit_service", service_id)
                     save_db(db)
                 go("/admin_panel")
@@ -2193,6 +2310,17 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                         "services_count": 0, "created_at": now()
                     })
                     audit(db, user, "add_provider", name)
+                    save_db(db)
+                go("/admin_providers")
+
+            elif t == "test_provider":
+                provider_id = q.get("id", [""])[0]
+                provider = next((item for item in db.get("providers", []) if str(item.get("id")) == str(provider_id)), None)
+                if provider:
+                    ok, detail = provider_test(provider.get("url", ""), provider.get("key", ""))
+                    provider["status"] = "متصل" if ok else "فشل الاتصال"
+                    provider["last_test"] = now()
+                    audit(db, user, "test_provider", f"{provider.get('name')}: {detail}")
                     save_db(db)
                 go("/admin_providers")
 
