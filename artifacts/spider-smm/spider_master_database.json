@@ -36,7 +36,44 @@
             "description": "",
             "min_qty": 10,
             "max_qty": 100,
-            "active": true
+            "active": true,
+            "rating": 5.0,
+            "rating_count": 3,
+            "last_updated": "2026-08-19 21:29:27"
+        },
+        {
+            "id": "2",
+            "name": "اعضاء تلي بدون ضمان | 0.09$ | لكل 1000",
+            "cat": "اعضاء تليكرام غير ضمان | ♻️ |",
+            "image_url": "https://cdn.simpleicons.org/telegram/26A5E4",
+            "price": 10.0,
+            "description": "ربي عبادك مصخوها حيل",
+            "min_qty": 10,
+            "max_qty": 100,
+            "remote_id": "14681",
+            "start_time": "فوري إلى 15 دقيقة",
+            "last_updated": "2026-08-19 21:28:27",
+            "rating": 0,
+            "rating_count": 0,
+            "api_url": "https://kd1s.com/api/v2",
+            "api_key": "86b52e86626800cb85dddb36b3fc5857"
+        },
+        {
+            "id": "3",
+            "name": "تلنب",
+            "cat": "ووفوف",
+            "image_url": "https://cdn.simpleicons.org/instagram/E4405F",
+            "price": 99595.0,
+            "description": "معظم وقتي شارد مش بتكلم غير في الـMusic",
+            "min_qty": 10,
+            "max_qty": 10,
+            "remote_id": "وو",
+            "start_time": "فوري إلى 15 دقيقة",
+            "last_updated": "2026-08-19 21:30:07",
+            "rating": 0,
+            "rating_count": 0,
+            "api_url": "نقز",
+            "api_key": "ووف"
         }
     ],
     "orders": [
@@ -80,7 +117,8 @@
             "remote_id": 13775182,
             "created_at": "2026-08-19 21:02:50",
             "status_updated_at": "2026-08-19 21:02:56",
-            "discount": 0
+            "discount": 0,
+            "rated": true
         }
     ],
     "announcement": "| كود خصم على كل الخدمات صار جاهز |",
@@ -173,6 +211,30 @@
             "message": "طلبك تليجرام أصبح: مكتمل",
             "read": false,
             "created_at": "2026-08-19 21:02:56"
+        },
+        {
+            "id": "865c21379c67",
+            "user": "admin",
+            "title": "شكراً لتقييمك",
+            "message": "قيّمت خدمة تليجرام بـ 5/5",
+            "read": false,
+            "created_at": "2026-08-19 21:20:25"
+        },
+        {
+            "id": "3a287f994718",
+            "user": "admin",
+            "title": "شكراً لتقييمك",
+            "message": "قيّمت خدمة تليجرام بـ 5/5",
+            "read": false,
+            "created_at": "2026-08-19 21:20:31"
+        },
+        {
+            "id": "526c038c7d8f",
+            "user": "admin",
+            "title": "شكراً لتقييمك",
+            "message": "قيّمت خدمة تليجرام بـ 5/5",
+            "read": false,
+            "created_at": "2026-08-19 21:20:45"
         }
     ],
     "audit_logs": [
@@ -439,6 +501,42 @@
             "action": "update_profile",
             "detail": "تم تحديث بيانات الحساب",
             "created_at": "2026-08-19 21:05:51"
+        },
+        {
+            "actor": "admin",
+            "action": "bulk_services",
+            "detail": "تحديث حالة مجموعة خدمات",
+            "created_at": "2026-08-19 21:23:26"
+        },
+        {
+            "actor": "admin",
+            "action": "bulk_services",
+            "detail": "تحديث حالة مجموعة خدمات",
+            "created_at": "2026-08-19 21:23:34"
+        },
+        {
+            "actor": "admin",
+            "action": "bulk_services",
+            "detail": "تحديث حالة مجموعة خدمات",
+            "created_at": "2026-08-19 21:24:42"
+        },
+        {
+            "actor": "admin",
+            "action": "add_service",
+            "detail": "اعضاء تلي بدون ضمان | 0.09$ | لكل 1000",
+            "created_at": "2026-08-19 21:28:27"
+        },
+        {
+            "actor": "admin",
+            "action": "bulk_services",
+            "detail": "تحديث حالة مجموعة خدمات",
+            "created_at": "2026-08-19 21:29:27"
+        },
+        {
+            "actor": "admin",
+            "action": "add_service",
+            "detail": "تلنب",
+            "created_at": "2026-08-19 21:30:07"
         }
     ],
     "coupons": [

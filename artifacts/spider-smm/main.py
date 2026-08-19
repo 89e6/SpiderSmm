@@ -542,11 +542,6 @@ def get_welcome_page(error="", db=None):
                 background:linear-gradient(110deg,var(--gold),var(--orange)); box-shadow:0 13px 30px rgba(255,138,61,.22); margin-top:4px; }}
             .action:hover {{ transform:translateY(-2px); box-shadow:0 16px 35px rgba(255,138,61,.32); }}
             .forgot {{ display:block; color:var(--gold); text-align:left; font-size:11px; text-decoration:none; margin:3px 2px 19px; }}
-            .social-divider {{ display:flex;align-items:center;gap:10px;color:#63728a;font-size:10px;margin:18px 0 12px; }}
-            .social-divider::before,.social-divider::after {{ content:"";height:1px;background:rgba(255,255,255,.1);flex:1; }}
-            .google-btn {{ width:100%;height:50px;border:1px solid rgba(255,255,255,.13);border-radius:15px;background:rgba(255,255,255,.045);color:#eef4ff;cursor:pointer;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:10px; }}
-            .google-btn:hover {{ background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.24);transform:translateY(-1px); }}
-            .google-icon {{ width:19px;height:19px;border-radius:50%;background:#fff;color:#4285f4;display:grid;place-items:center;font-size:12px;font-weight:900;font-family:Arial; }}
             .error {{ color:var(--danger); background:rgba(255,107,122,.09); border:1px solid rgba(255,107,122,.2); padding:10px 12px; border-radius:12px; font-size:11px; margin-bottom:15px; }}
             .switch {{ color:var(--muted); text-align:center; font-size:11px; margin-top:18px; }} .switch button {{ color:var(--gold); background:none; border:0; cursor:pointer; font-weight:800; }}
             .strength {{ display:flex; align-items:center; gap:8px; margin:-6px 2px 12px; color:var(--muted); font-size:10px; }}
@@ -555,7 +550,7 @@ def get_welcome_page(error="", db=None):
             .trust {{ display:flex; align-items:center; justify-content:center; gap:8px; color:#7c8da7; font-size:10px; margin-top:19px; }}
             .trust i {{ color:var(--green); }} @media (max-width:880px) {{
                 .page {{ grid-template-columns:1fr; gap:28px; padding:22px 16px 40px; align-items:start; }}
-                .hero {{ text-align:center; order:2; }} .auth-wrap {{ order:1; justify-self:center; }}
+                 .hero {{ text-align:center; order:1; }} .auth-wrap {{ order:2; justify-self:center; }}
                 .brand {{ justify-content:center; }} .hero h1 {{ font-size:42px; margin-top:22px; }}
                 .hero-copy {{ margin:auto; font-size:13px; }} .feature-grid {{ margin:25px auto 0; }} .stats {{ justify-content:center; }}
             }} @media (max-width:480px) {{
@@ -591,9 +586,7 @@ def get_welcome_page(error="", db=None):
                             <div class="field"><i class="fas fa-user"></i><input type="text" name="user" placeholder="اسم المستخدم" autocomplete="username" required></div>
                             <div class="field"><i class="fas fa-lock"></i><input id="login-pass" type="password" name="pass" placeholder="كلمة المرور" autocomplete="current-password" required><button type="button" class="password-toggle" aria-label="إظهار كلمة المرور" onclick="togglePassword('login-pass', this)"><i class="fas fa-eye"></i></button></div>
                             <a class="forgot" href="/forgot_password">نسيت كلمة المرور؟</a>
-                            <button class="action" type="submit"><i class="fas fa-arrow-left"></i> دخول آمن إلى حسابي</button>
-                            <div class="social-divider"><span>أو تابع بسرعة</span></div>
-                            <button type="button" class="google-btn" onclick="signInWithGoogle()"><span class="google-icon"><i class="fab fa-google"></i></span><span>المتابعة الآمنة باستخدام Google</span><i class="fas fa-arrow-left" style="margin-right:auto;color:#8fa0b8;font-size:11px;"></i></button>
+                             <button class="action" type="submit"><i class="fas fa-arrow-left"></i> دخول آمن إلى حسابي</button>
                         </form>
                         <div class="switch">جديد هنا؟ <button type="button" onclick="showAuth('register')">أنشئ حسابك خلال دقيقة</button></div>
                     </div>
@@ -644,48 +637,6 @@ def get_welcome_page(error="", db=None):
                  const input = document.getElementById('register-ref');
                  if (code && input) input.value = code;
              }})();
-            let clerkReady = null;
-            function loadClerk() {{
-                if (!{json.dumps(bool(CLERK_PUBLISHABLE_KEY))}) return Promise.reject(new Error('clerk_not_configured'));
-                if (window.Clerk) return Promise.resolve(window.Clerk);
-                if (clerkReady) return clerkReady;
-                clerkReady = new Promise((resolve, reject) => {{
-                    const script = document.createElement('script');
-                    script.src = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
-                    script.async = true;
-                    script.onload = async () => {{
-                        try {{
-                            window.Clerk = new Clerk({json.dumps(CLERK_PUBLISHABLE_KEY)});
-                            await window.Clerk.load();
-                            resolve(window.Clerk);
-                        }} catch (error) {{ reject(error); }}
-                    }};
-                    script.onerror = reject;
-                    document.head.appendChild(script);
-                }});
-                return clerkReady;
-            }}
-            async function signInWithGoogle() {{
-                const button = document.querySelector('.google-btn');
-                const original = button.innerHTML;
-                button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري فتح Google...';
-                try {{
-                    const clerk = await loadClerk();
-                    const callbackUrl = window.location.origin + '/clerk_callback';
-                    if (clerk.client && clerk.client.signIn && clerk.client.signIn.authenticateWithRedirect) {{
-                        await clerk.client.signIn.authenticateWithRedirect({{
-                            strategy: 'oauth_google',
-                            redirectUrl: callbackUrl,
-                            redirectUrlComplete: callbackUrl
-                        }});
-                    }} else {{
-                        await clerk.openSignIn({{ oauthFlow: 'redirect', redirectUrl: callbackUrl }});
-                    }}
-                }} catch (error) {{
-                    button.disabled = false; button.innerHTML = original;
-                    alert(error.message === 'clerk_not_configured' ? 'تسجيل Google غير مهيأ بعد من إعدادات المصادقة.' : 'تعذر فتح تسجيل Google، حاول مرة أخرى.');
-                }}
-            }}
         </script>
     </body>
     </html>
