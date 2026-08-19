@@ -351,7 +351,8 @@ def bridge_clerk_session(db, session_id):
     return account_name
 
 # --- [ 3. التصميم المتكامل (UI/UX) ] ---
-def get_master_style():
+def get_master_style(db=None):
+    floating_telegram = telegram_url(db) if db is not None else f"https://t.me/{TELEGRAM_USER}"
     return f"""
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#101b2d">
@@ -470,11 +471,11 @@ def get_master_style():
             .order-row {{ align-items:flex-start; }} .floating-tg {{ bottom:96px; left:14px; }}
         }}
     </style>
-    <a href="{h(telegram_url(db))}" class="floating-tg" target="_blank" rel="noopener noreferrer" aria-label="قناة التليجرام"><i class="fab fa-telegram-plane"></i></a>
+    <a href="{h(floating_telegram)}" class="floating-tg" target="_blank" rel="noopener noreferrer" aria-label="قناة التليجرام"><i class="fab fa-telegram-plane"></i></a>
     """
 
 # --- [ 4. الواجهات ] ---
-def get_welcome_page(error=""):
+def get_welcome_page(error="", db=None):
     return f"""
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
@@ -1460,7 +1461,7 @@ def get_user_page(db, user):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    {get_master_style()}
+    {get_master_style(db)}
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         .dashboard {{ width:min(1180px,calc(100% - 32px)); margin:auto; }}
