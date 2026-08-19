@@ -170,6 +170,9 @@ def load_db():
         if "image_url" not in service:
             service["image_url"] = ""
             changed = True
+        if "active" not in service:
+            service["active"] = True
+            changed = True
     if not isinstance(data.get("category_images"), dict):
         data["category_images"] = {}
         changed = True
@@ -637,14 +640,14 @@ def get_orders_page(db, user):
             cancel_action = f"""<a class="pill" style="margin-top:7px;color:#ff6b7a;border-color:rgba(255,107,122,.3);" href="/cancel_order?id={h(o.get('id'))}" onclick="return confirm('هل تريد إلغاء هذا الطلب واسترداد تكلفته؟')">إلغاء واسترداد</a>"""
         repeat_action = f"""<a class="pill" style="margin-top:7px;color:var(--cyan);border-color:rgba(111,209,215,.3);" href="/repeat_order?id={h(o.get('id'))}"><i class="fas fa-rotate-right"></i> إعادة الطلب</a>"""
         orders_html += f"""
-        <div class="order-row order-card" data-service="{h(o.get('svc'))}" data-status="{h(status)}">
+        <a href="/order?id={h(o.get('id'))}" class="order-row order-card" style="text-decoration:none;" data-service="{h(o.get('svc'))}" data-status="{h(status)}">
             <div>
                 <div style="font-weight:bold;">{h(o.get('svc'))}</div>
                 <div style="font-size:12px; opacity:0.6;">الكمية: {h(o.get('qty'))} | التكلفة: {money(o.get('cost'))}</div>
                 <div style="font-size:11px; opacity:0.45;">{h(o.get('created_at', ''))}</div>
             </div>
             <div style="color:{status_color}; font-weight:bold; font-size:14px;text-align:left;">{h(status)}<br>{repeat_action}{cancel_action}</div>
-        </div>"""
+        </a>"""
     if not orders_html:
         orders_html = "<p style='text-align:center; opacity:0.5; margin-top:50px;'>ليس لديك طلبات سابقة</p>"
     return f"""<!DOCTYPE html><html lang="ar"><head><meta charset="UTF-8">{get_master_style()}</head><body>
@@ -684,7 +687,10 @@ def get_settings_page(db, user):
             <h2 style="margin:0;">{h(user)}</h2><div class="badge" style="margin-top:10px;">الرصيد: {money(u.get('balance'))}</div>
             <div style="margin-top:12px; opacity:.75;">المستوى: <b>{level}</b> · خصمك الحالي: {discount}%</div>
         </div>
-        <div class="settings-group">
+         <div class="card"><div class="section-head"><div><div class="eyebrow">بيانات الحساب</div><h3 style="margin:3px 0 0;">تحديث معلوماتك</h3></div><i class="fas fa-user-pen" style="color:var(--accent);font-size:20px;"></i></div>
+           <form action="/profile_action" method="GET"><input name="email" type="email" value="{h(u.get('email',''))}" placeholder="البريد الإلكتروني"><input name="phone" value="{h(u.get('phone',''))}" placeholder="رقم الهاتف"><select name="theme"><option value="dark" {'selected' if u.get('theme','dark') == 'dark' else ''}>الوضع الداكن</option><option value="light" {'selected' if u.get('theme') == 'light' else ''}>الوضع الفاتح</option></select><button class="btn-send">حفظ بيانات الحساب</button></form>
+         </div>
+         <div class="settings-group">
             <div class="settings-title">الحساب والمالية</div>
             <div class="settings-list">
                 <a href="/order_history" class="settings-item"><i class="fas fa-history"></i><span class="text">سجل طلباتي</span><i class="fas fa-chevron-left chevron"></i></a>
@@ -934,6 +940,12 @@ def get_admin_security_page(db):
     rows = "".join(f"""<tr><td>{h(a.get('created_at'))}</td><td>{h(a.get('actor'))}</td><td>{h(a.get('action'))}</td><td>{h(a.get('detail'))}</td></tr>""" for a in reversed(db.get("audit_logs", [])[-100:])) or "<tr><td colspan='4'>لا يوجد نشاط مسجل</td></tr>"
     return admin_layout("الأمان وسجل النشاط", f"""<div class="card"><div class="inline-note"><i class="fas fa-shield-halved"></i><span>كل العمليات الحساسة مثل تعديل الرصيد وتغيير الخدمات والدخول يتم تسجيلها للمراجعة.</span></div><div class="table-wrap"><table class="admin-table"><tr><th>التاريخ</th><th>المنفذ</th><th>العملية</th><th>التفاصيل</th></tr>{rows}</table></div></div>""")
 
+def get_admin_service_edit_page(db, service_id):
+    service = next((s for s in db.get("services", []) if str(s.get("id")) == str(service_id)), None)
+    if not service:
+        return admin_layout("الخدمة غير موجودة", "<div class='card'>تعذر العثور على الخدمة.</div>")
+    return admin_layout("تعديل الخدمة", f"""<div class="card"><h3>{h(service.get('name'))}</h3><form action="/admin_action" method="GET"><input type="hidden" name="type" value="edit_service"><input type="hidden" name="id" value="{h(service_id)}"><input name="name" value="{h(service.get('name'))}" placeholder="اسم الخدمة" required><input name="cat" value="{h(service.get('cat'))}" placeholder="الفئة" required><input name="price" type="number" step="0.01" min="0" value="{h(service.get('price'))}" placeholder="السعر لكل 1000" required><input name="remote_id" value="{h(service.get('remote_id'))}" placeholder="معرف المزود" required><select name="active"><option value="1" {'selected' if service.get('active', True) else ''}>الخدمة مفعلة</option><option value="0" {'selected' if not service.get('active', True) else ''}>الخدمة متوقفة</option></select><button class="btn-send">حفظ التعديلات</button></form></div>""")
+
 def get_admin_page(db):
     users, orders, services = db.get("users", {}), db.get("orders", []), db.get("services", [])
     total_profit = sum(float(o.get('cost', 0)) for o in orders)
@@ -1093,7 +1105,7 @@ def get_admin_page_v2(db):
                 <input id="svc-image-{h(s.get("id"))}" type="url" name="img" value="{h(image_url)}" placeholder="اختر صورة الخدمة" aria-label="رابط صورة الخدمة">
                 <button type="button" class="gallery-trigger" onclick="openGallery('svc-image-{h(s.get("id"))}')"><i class="fas fa-images"></i> المعرض</button><button class="mini-save" type="submit">حفظ</button>
               </form>
-              <a class="delete-link" href="/admin_action?type=del_svc&id={h(s.get("id"))}" onclick="return confirm('هل تريد حذف هذه الخدمة؟')">حذف</a>
+              <a class="pill" href="/admin_service_edit?id={h(s.get("id"))}">تعديل</a><a class="delete-link" href="/admin_action?type=del_svc&id={h(s.get("id"))}" onclick="return confirm('هل تريد حذف هذه الخدمة؟')">حذف</a>
             </div>
         </article>"""
     if not service_rows:
@@ -1165,7 +1177,7 @@ def get_admin_page_v2(db):
                <form action="/admin_action" method="GET"><input type="hidden" name="type" value="announcement"><textarea name="message" maxlength="240" placeholder="مثال: خصم خاص على خدمات Instagram اليوم" required style="width:100%;min-height:76px;"></textarea><button class="btn-send" type="submit" style="width:100%;margin-top:10px;">نشر الإعلان</button></form>
              </section>
              <section class="card admin-card"><div class="section-head"><div><h2>اختصارات الإدارة</h2><p class="lead">الأعمال المتكررة في مكان واحد.</p></div></div><div class="quick-actions">
-                <a href="/admin_reports">التقارير</a><a href="/admin_topups">طلبات الشحن ({pending_topups})</a><a href="/admin_coupons">الكوبونات</a><a href="/admin_tickets">التذاكر ({open_tickets})</a><a href="/admin_action?type=sync_orders">تحديث الطلبات</a><a href="/admin_backup">نسخة احتياطية</a><a href="/admin_action?type=toggle_site">{'إيقاف الموقع' if active else 'تشغيل الموقع'}</a><a href="/settings">العودة للموقع</a>
+                 <a href="/admin_orders">الطلبات</a><a href="/admin_users">العملاء</a><a href="/admin_reports">التقارير</a><a href="/admin_topups">طلبات الشحن ({pending_topups})</a><a href="/admin_providers">المزودون</a><a href="/admin_coupons">الكوبونات</a><a href="/admin_tickets">التذاكر ({open_tickets})</a><a href="/admin_notifications">الإشعارات</a><a href="/admin_settings">إعدادات المنصة</a><a href="/admin_security">الأمان والسجل</a><a href="/admin_action?type=sync_orders">تحديث الطلبات</a><a href="/admin_backup">نسخة احتياطية</a><a href="/admin_action?type=toggle_site">{'إيقاف الموقع' if active else 'تشغيل الموقع'}</a><a href="/settings">العودة للموقع</a>
             </div></section>
           </div>
         </div>
@@ -1189,7 +1201,7 @@ def get_admin_page_v2(db):
 
 def get_user_page(db, user):
     u = db["users"][user]
-    svcs = db.get("services", [])
+    svcs = [service for service in db.get("services", []) if service.get("active", True)]
     user_orders = [o for o in db.get("orders", []) if o.get('user') == user]
     cats = sorted(list(set([s.get('cat', 'عام') for s in svcs])))
     category_images = db.get("category_images", {})
@@ -1760,8 +1772,27 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                 res(get_change_password_page("تم تغيير كلمة المرور بنجاح"))
             return
 
+        if p == "/profile_action":
+            account = db["users"].get(user)
+            if account:
+                account["email"] = q.get("email", [""])[0].strip()[:120]
+                account["phone"] = q.get("phone", [""])[0].strip()[:40]
+                account["theme"] = q.get("theme", ["dark"])[0] if q.get("theme", ["dark"])[0] in ("dark", "light") else "dark"
+                audit(db, user, "update_profile", "تم تحديث بيانات الحساب")
+                save_db(db)
+            go("/settings")
+            return
+
         if p == "/support":
             res(get_support_page(db, user))
+            return
+
+        if p == "/ticket":
+            res(get_ticket_page(db, user, q.get("id", [""])[0]))
+            return
+
+        if p == "/order":
+            res(get_order_detail_page(db, user, q.get("id", [""])[0]))
             return
 
         if p == "/ticket_action":
@@ -1776,6 +1807,19 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                 audit(db, user, "open_ticket", f"فتح تذكرة {ticket['id']}")
                 save_db(db)
                 res(get_support_page(db, user, "تم إرسال التذكرة، سيتواصل معك فريق الدعم"))
+            elif ticket_type == "reply":
+                ticket_id = q.get("id", [""])[0]
+                ticket = next((item for item in db.get("tickets", []) if item.get("id") == ticket_id and item.get("user") == user), None)
+                message = q.get("message", [""])[0].strip()
+                if ticket and message and ticket.get("status") != "مغلقة":
+                    ticket.setdefault("replies", []).append({"from": user, "message": message[:1000], "created_at": now()})
+                    ticket["status"] = "قيد المتابعة"
+                    admin_name = next((name for name, account in db.get("users", {}).items() if account.get("is_admin")), None)
+                    if admin_name:
+                        notify(db, admin_name, "رد جديد على تذكرة", f"العميل {user} رد على التذكرة #{ticket_id}")
+                    audit(db, user, "reply_ticket", ticket_id)
+                    save_db(db)
+                res(get_ticket_page(db, user, ticket_id))
             return
 
         if p == "/terms":
@@ -1809,7 +1853,7 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
 
         elif p == "/admin_topups":
             if db['users'].get(user, {}).get('is_admin'):
-                go("/admin_panel")
+                res(get_admin_topups_page(db))
             else:
                 go("/")
 
@@ -1828,6 +1872,48 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
         elif p == "/admin_backup":
             if db['users'].get(user, {}).get('is_admin'):
                 res(get_admin_backup_page())
+            else:
+                go("/")
+
+        elif p == "/admin_orders":
+            if db['users'].get(user, {}).get('is_admin'):
+                res(get_admin_orders_page(db))
+            else:
+                go("/")
+
+        elif p == "/admin_users":
+            if db['users'].get(user, {}).get('is_admin'):
+                res(get_admin_users_page(db))
+            else:
+                go("/")
+
+        elif p == "/admin_providers":
+            if db['users'].get(user, {}).get('is_admin'):
+                res(get_admin_providers_page(db))
+            else:
+                go("/")
+
+        elif p == "/admin_notifications":
+            if db['users'].get(user, {}).get('is_admin'):
+                res(get_admin_notifications_page(db))
+            else:
+                go("/")
+
+        elif p == "/admin_settings":
+            if db['users'].get(user, {}).get('is_admin'):
+                res(get_admin_settings_page(db))
+            else:
+                go("/")
+
+        elif p == "/admin_security":
+            if db['users'].get(user, {}).get('is_admin'):
+                res(get_admin_security_page(db))
+            else:
+                go("/")
+
+        elif p == "/admin_service_edit":
+            if db['users'].get(user, {}).get('is_admin'):
+                res(get_admin_service_edit_page(db, q.get("id", [""])[0]))
             else:
                 go("/")
 
@@ -1899,6 +1985,22 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                 save_db(db)
                 go("/admin_panel")
 
+            elif t == "edit_service":
+                service_id = q.get("id", [""])[0]
+                service = next((item for item in db.get("services", []) if str(item.get("id")) == str(service_id)), None)
+                if service:
+                    try:
+                        service["price"] = max(0, float(q.get("price", ["0"])[0]))
+                    except ValueError:
+                        pass
+                    service["name"] = q.get("name", [service.get("name", "")])[0].strip()[:120]
+                    service["cat"] = q.get("cat", [service.get("cat", "عام")])[0].strip()[:80]
+                    service["remote_id"] = q.get("remote_id", [service.get("remote_id", "")])[0].strip()
+                    service["active"] = q.get("active", ["1"])[0] == "1"
+                    audit(db, user, "edit_service", service_id)
+                    save_db(db)
+                go("/admin_panel")
+
             elif t == "toggle_site":
                 db["is_active"] = not db.get("is_active", True)
                 audit(db, user, "toggle_site", str(db["is_active"]))
@@ -1940,6 +2042,27 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                 save_db(db)
                 go("/admin_coupons")
 
+            elif t == "add_provider":
+                name = q.get("name", [""])[0].strip()
+                url = q.get("url", [""])[0].strip()
+                key = q.get("key", [""])[0].strip()
+                if name and url and key:
+                    db.setdefault("providers", []).append({
+                        "id": secrets.token_hex(5).upper(), "name": name[:80],
+                        "url": url, "key": key, "status": "فعال",
+                        "services_count": 0, "created_at": now()
+                    })
+                    audit(db, user, "add_provider", name)
+                    save_db(db)
+                go("/admin_providers")
+
+            elif t == "del_provider":
+                provider_id = q.get("id", [""])[0]
+                db["providers"] = [p for p in db.get("providers", []) if p.get("id") != provider_id]
+                audit(db, user, "delete_provider", provider_id)
+                save_db(db)
+                go("/admin_providers")
+
             elif t == "announcement":
                 announcement = q.get("message", [""])[0].strip()[:240]
                 if announcement:
@@ -1950,6 +2073,35 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
                     audit(db, user, "update_announcement", announcement)
                     save_db(db)
                 go("/admin_panel")
+
+            elif t == "send_notification":
+                target = q.get("target", ["all"])[0]
+                title = q.get("title", ["إشعار من المنصة"])[0].strip()[:100]
+                message = q.get("message", [""])[0].strip()[:500]
+                recipients = [name for name, account in db.get("users", {}).items() if not account.get("is_admin")] if target == "all" else [target]
+                for recipient in recipients:
+                    notify(db, recipient, title, message)
+                audit(db, user, "send_notification", f"{target} · {title}")
+                save_db(db)
+                go("/admin_notifications")
+
+            elif t == "notify_user":
+                target = q.get("u", [""])[0]
+                if target in db.get("users", {}):
+                    notify(db, target, "رسالة من المالك", "لديك تحديث جديد من إدارة المنصة.")
+                    audit(db, user, "notify_user", target)
+                    save_db(db)
+                go("/admin_users")
+
+            elif t == "site_settings":
+                settings = db.setdefault("site_settings", {})
+                settings["site_name"] = q.get("site_name", [SITE_NAME])[0].strip()[:80] or SITE_NAME
+                settings["support_email"] = q.get("support_email", [""])[0].strip()[:120]
+                settings["maintenance_message"] = q.get("maintenance_message", [""])[0].strip()[:240]
+                settings["allow_registration"] = "allow_registration" in q
+                audit(db, user, "update_site_settings", "تم تحديث إعدادات المنصة")
+                save_db(db)
+                go("/admin_settings")
 
             elif t == "reply_ticket":
                 ticket_id = q.get("id", [""])[0]
