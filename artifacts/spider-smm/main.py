@@ -504,9 +504,9 @@ def get_welcome_page(error="", db=None):
             .page {{ width:min(1200px, 100%); min-height:100vh; margin:auto; padding:32px;
                 display:grid; grid-template-columns:1.12fr .88fr; gap:70px; align-items:center; position:relative; }}
             .brand {{ display:flex; align-items:center; gap:12px; font-weight:900; letter-spacing:-.5px; }}
-            .brand-mark {{ width:48px; height:48px; border-radius:16px; display:grid; place-items:center;
+             .brand-mark {{ width:43px; height:43px; border-radius:14px; display:grid; place-items:center;
                 color:#111; background:linear-gradient(135deg,var(--gold),var(--orange));
-                box-shadow:0 0 30px rgba(255,200,87,.3); font-size:25px; transform:rotate(-8deg); }}
+                 box-shadow:0 0 26px rgba(255,200,87,.3); font-size:22px; transform:rotate(-8deg); }}
             .brand span {{ font-size:21px; }} .brand small {{ display:block; color:var(--muted); font-size:10px; font-weight:500; letter-spacing:1px; }}
             .hero {{ padding:10px 0; }}
             .live-pill {{ display:inline-flex; align-items:center; gap:9px; color:var(--green); border:1px solid rgba(97,230,161,.22);
@@ -518,7 +518,7 @@ def get_welcome_page(error="", db=None):
             .hero-copy b {{ color:#e8eef8; }}
             .feature-grid {{ margin-top:34px; display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; max-width:600px; }}
             .feature {{ border:1px solid var(--line); background:rgba(255,255,255,.035); border-radius:20px; padding:17px 15px; }}
-            .feature i {{ color:var(--gold); font-size:18px; margin-bottom:11px; }}
+             .feature i {{ color:var(--gold); font-size:16px; margin-bottom:9px; }}
             .feature b {{ display:block; font-size:13px; }} .feature span {{ color:var(--muted); font-size:10px; }}
             .stats {{ display:flex; gap:28px; margin-top:34px; color:var(--muted); font-size:11px; }}
             .stats strong {{ display:block; color:#fff; font-size:21px; line-height:1.25; }}
@@ -534,11 +534,11 @@ def get_welcome_page(error="", db=None):
             .tab.active {{ color:#111; background:linear-gradient(135deg,var(--gold),var(--orange)); }}
             .form-panel[hidden] {{ display:none; }}
             .field {{ position:relative; margin-bottom:14px; }} .field > i {{ position:absolute; right:16px; top:17px; color:#6f819d; font-size:14px; }}
-            .field input {{ width:100%; height:52px; padding:0 45px 0 45px; color:#fff; background:rgba(0,0,0,.2);
+             .field input {{ width:100%; height:49px; padding:0 42px 0 42px; color:#fff; background:rgba(0,0,0,.2);
                 border:1px solid rgba(255,255,255,.1); border-radius:15px; outline:none; font-size:13px; }}
             .field input::placeholder {{ color:#64738b; }} .field input:focus {{ border-color:rgba(255,200,87,.75); box-shadow:0 0 0 4px rgba(255,200,87,.08); }}
             .password-toggle {{ position:absolute; left:10px; top:10px; border:0; background:transparent; color:#718199; cursor:pointer; width:32px; height:32px; }}
-            .action {{ width:100%; height:54px; border:0; border-radius:16px; cursor:pointer; color:#111; font-weight:900; font-size:15px;
+             .action {{ width:100%; height:50px; border:0; border-radius:15px; cursor:pointer; color:#111; font-weight:900; font-size:14px;
                 background:linear-gradient(110deg,var(--gold),var(--orange)); box-shadow:0 13px 30px rgba(255,138,61,.22); margin-top:4px; }}
             .action:hover {{ transform:translateY(-2px); box-shadow:0 16px 35px rgba(255,138,61,.32); }}
             .forgot {{ display:block; color:var(--gold); text-align:left; font-size:11px; text-decoration:none; margin:3px 2px 19px; }}
