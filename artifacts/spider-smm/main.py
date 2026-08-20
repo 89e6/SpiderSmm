@@ -495,6 +495,7 @@ def get_master_style(db=None):
 
 # --- [ 4. الواجهات ] ---
 def get_welcome_page(error="", db=None):
+    support_url = telegram_url(db) if db is not None else f"https://t.me/{TELEGRAM_USER}"
     return f"""
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
@@ -548,6 +549,8 @@ def get_welcome_page(error="", db=None):
             .card-head {{ display:flex; justify-content:space-between; align-items:center; margin-bottom:22px; }}
             .card-head h2 {{ margin:0; font-size:22px; }} .card-head p {{ margin:4px 0 0; color:var(--muted); font-size:11px; }}
             .secure {{ color:var(--green); font-size:10px; display:flex; gap:5px; align-items:center; }}
+             .security-indicator {{ display:flex; align-items:center; gap:8px; margin:-8px 0 17px; padding:8px 10px; border:1px solid rgba(97,230,161,.18); border-radius:12px; color:#a9e8c5; background:rgba(97,230,161,.06); font-size:10px; }}
+             .security-indicator i {{ color:var(--green); }}
             .tabs {{ display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:4px; background:rgba(0,0,0,.25); border-radius:15px; margin-bottom:22px; }}
             .tab {{ border:0; background:transparent; color:var(--muted); border-radius:11px; padding:11px; cursor:pointer; font-size:12px; font-weight:700; }}
             .tab.active {{ color:#111; background:linear-gradient(135deg,var(--gold),var(--orange)); }}
@@ -578,6 +581,21 @@ def get_welcome_page(error="", db=None):
                 .feature {{ padding:13px 9px; }} .feature b {{ font-size:11px; }} .feature span {{ font-size:9px; }}
                 .stats {{ gap:18px; }} .stats strong {{ font-size:18px; }}
             }} @media (prefers-reduced-motion:reduce) {{ *, *::before, *::after {{ animation:none!important; transition:none!important; }} }}
+             .login-options {{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin:-4px 1px 14px; color:var(--muted); font-size:10px; }}
+             .remember {{ display:flex; align-items:center; gap:6px; cursor:pointer; }}
+             .remember input {{ width:14px; height:14px; margin:0; accent-color:var(--gold); }}
+             .welcome-actions {{ display:flex; gap:8px; margin:0 0 18px; }}
+             .welcome-actions a, .welcome-actions button {{ flex:1; min-height:38px; padding:8px 9px; border:1px solid rgba(255,255,255,.12); border-radius:11px; color:#dbe7f5; background:rgba(255,255,255,.045); text-decoration:none; text-align:center; cursor:pointer; font-size:10px; font-weight:800; }}
+             .welcome-actions a:first-child {{ color:var(--cyan); border-color:rgba(84,215,255,.24); }}
+             .welcome-actions a:hover, .welcome-actions button:hover {{ background:rgba(255,255,255,.09); }}
+             .how-modal {{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; padding:18px; background:rgba(2,7,15,.78); z-index:5000; }}
+             .how-modal.open {{ display:flex; }}
+             .how-card {{ width:min(420px,100%); padding:23px; border:1px solid var(--line); border-radius:22px; background:linear-gradient(145deg,#142641,#091321); box-shadow:0 24px 70px rgba(0,0,0,.5); }}
+             .how-head {{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }}
+             .how-head h3 {{ margin:0; font-size:19px; }} .how-close {{ border:0; background:transparent; color:var(--muted); cursor:pointer; font-size:19px; min-height:30px; padding:2px 8px; }}
+             .how-step {{ display:flex; align-items:flex-start; gap:11px; padding:11px 0; border-bottom:1px solid rgba(255,255,255,.08); }}
+             .how-step:last-child {{ border:0; }} .how-step b {{ display:block; font-size:12px; }} .how-step span {{ color:var(--muted); font-size:10px; }}
+             .step-number {{ flex:0 0 27px; width:27px; height:27px; display:grid; place-items:center; border-radius:9px; color:#111; background:linear-gradient(135deg,var(--gold),var(--orange)); font-weight:900; font-size:12px; }}
         </style>
     </head>
     <body>
@@ -597,20 +615,22 @@ def get_welcome_page(error="", db=None):
             </section>
             <section class="auth-wrap">
                 <div class="auth-card">
-                    <div class="card-head"><div><h2 id="auth-title">مرحباً بعودتك</h2><p id="auth-subtitle">سجّل دخولك لإدارة نموك</p></div><div class="secure"><i class="fas fa-lock"></i> اتصال آمن</div></div>
+                     <div class="card-head"><div><h2 id="auth-title">مرحباً بعودتك</h2><p id="auth-subtitle">سجّل دخولك لإدارة نموك</p></div><div class="secure"><i class="fas fa-lock"></i> اتصال آمن</div></div>
+                     <div class="security-indicator"><i class="fas fa-shield-halved"></i><span>اتصال آمن — بيانات الدخول محمية ولا نشارك معلوماتك.</span></div>
+                     <div class="welcome-actions"><a href="{h(support_url)}" target="_blank" rel="noopener noreferrer"><i class="fas fa-headset"></i> دعم مباشر</a><button type="button" onclick="toggleHow(true)"><i class="fas fa-circle-info"></i> كيف تعمل المنصة؟</button></div>
                     <div class="tabs"><button class="tab active" id="login-tab" onclick="showAuth('login')">تسجيل الدخول</button><button class="tab" id="register-tab" onclick="showAuth('register')">عضوية جديدة</button></div>
                     {f'<div class="error"><i class="fas fa-circle-exclamation"></i> {h(error)}</div>' if error else ''}
                     <div id="login-form" class="form-panel">
-                        <form action="/auth" method="GET">
-                            <div class="field"><i class="fas fa-user"></i><input type="text" name="user" placeholder="اسم المستخدم" autocomplete="username" required></div>
+                         <form action="/auth" method="GET" onsubmit="return preventRepeat(this)">
+                             <div class="field"><i class="fas fa-user"></i><input type="text" name="user" placeholder="اسم المستخدم أو البريد أو الهاتف" autocomplete="username" required></div>
                             <div class="field"><i class="fas fa-lock"></i><input id="login-pass" type="password" name="pass" placeholder="كلمة المرور" autocomplete="current-password" required><button type="button" class="password-toggle" aria-label="إظهار كلمة المرور" onclick="togglePassword('login-pass', this)"><i class="fas fa-eye"></i></button></div>
-                            <a class="forgot" href="/forgot_password">نسيت كلمة المرور؟</a>
+                             <div class="login-options"><label class="remember"><input type="checkbox" name="remember" value="1"> تذكرني على هذا الجهاز</label><a class="forgot" href="/forgot_password">نسيت كلمة المرور؟</a></div>
                              <button class="action" type="submit"><i class="fas fa-arrow-left"></i> دخول آمن إلى حسابي</button>
                         </form>
                         <div class="switch">جديد هنا؟ <button type="button" onclick="showAuth('register')">أنشئ حسابك خلال دقيقة</button></div>
                     </div>
                     <div id="register-form" class="form-panel" hidden>
-                        <form action="/register" method="GET">
+                         <form action="/register" method="GET" onsubmit="return confirmRegistration(this)">
                             <div class="field"><i class="fas fa-user-plus"></i><input type="text" name="nu" placeholder="اختر اسم مستخدم" autocomplete="username" pattern="[A-Za-z0-9_-]+" required></div>
                             <div class="field"><i class="fas fa-key"></i><input id="register-pass" type="password" name="np" placeholder="أنشئ كلمة مرور قوية" autocomplete="new-password" minlength="6" required oninput="passwordStrength(this.value)"><button type="button" class="password-toggle" aria-label="إظهار كلمة المرور" onclick="togglePassword('register-pass', this)"><i class="fas fa-eye"></i></button></div>
                             <div class="strength"><span id="strength-label">قوة كلمة المرور</span><div class="strength-bar"><i id="strength-fill"></i></div></div>
@@ -651,12 +671,36 @@ def get_welcome_page(error="", db=None):
                 fill.style.width = widths[score]; fill.style.background = colors[score];
                 label.textContent = score < 2 ? 'كلمة مرور ضعيفة' : (score < 4 ? 'كلمة مرور جيدة' : 'كلمة مرور قوية');
             }}
+             function preventRepeat(form) {{
+                 const submit = form.querySelector('button[type="submit"]');
+                 if (form.dataset.submitted === '1') return false;
+                 form.dataset.submitted = '1';
+                 if (submit) {{ submit.disabled = true; submit.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري التحقق...'; }}
+                 return true;
+             }}
+             function confirmRegistration(form) {{
+                 if (!window.confirm('هل أنت متأكد من إنشاء الحساب بهذه البيانات؟')) return false;
+                 return preventRepeat(form);
+             }}
+             function toggleHow(open) {{
+                 const modal = document.getElementById('how-modal');
+                 modal.classList.toggle('open', open);
+                 modal.setAttribute('aria-hidden', open ? 'false' : 'true');
+             }}
              (function prefillReferral() {{
                  const code = new URLSearchParams(window.location.search).get('ref');
                  const input = document.getElementById('register-ref');
                  if (code && input) input.value = code;
              }})();
         </script>
+         <div id="how-modal" class="how-modal" aria-hidden="true" onclick="if(event.target === this) toggleHow(false)">
+             <div class="how-card" role="dialog" aria-modal="true" aria-labelledby="how-title">
+                 <div class="how-head"><h3 id="how-title">كيف تعمل المنصة؟</h3><button type="button" class="how-close" aria-label="إغلاق" onclick="toggleHow(false)"><i class="fas fa-xmark"></i></button></div>
+                 <div class="how-step"><div class="step-number">1</div><div><b>اختر الخدمة</b><span>تصفح الأقسام واختر الخدمة المناسبة لهدفك.</span></div></div>
+                 <div class="how-step"><div class="step-number">2</div><div><b>أرسل التفاصيل</b><span>أضف الرابط والكمية ثم راجع التكلفة قبل التنفيذ.</span></div></div>
+                 <div class="how-step"><div class="step-number">3</div><div><b>تابع النتيجة</b><span>تابع حالة طلبك من لوحة التحكم وسجل الطلبات.</span></div></div>
+             </div>
+         </div>
     </body>
     </html>
     """
@@ -1749,10 +1793,13 @@ class SpiderServer(http.server.BaseHTTPRequestHandler):
 
         # 1. الصفحات العامة (بدون تسجيل دخول)
         if p == "/auth":
-            u_in, p_in = q.get('user',[''])[0], q.get('pass',[''])[0]
-            if u_in in db['users'] and not db['users'][u_in].get("frozen") and db['users'][u_in]['pass'] == hash_pass(p_in):
+            identifier, p_in = q.get('user',[''])[0].strip(), q.get('pass',[''])[0]
+            u_in = find_login_user(db, identifier)
+            if u_in and not db['users'][u_in].get("frozen") and db['users'][u_in]['pass'] == hash_pass(p_in):
                 self.send_response(302)
-                self.send_header("Set-Cookie", f"session_user={urllib.parse.quote(u_in)}; Path=/; HttpOnly; SameSite=Lax")
+                remember = q.get("remember", [""])[0] == "1"
+                max_age = "; Max-Age=2592000" if remember else ""
+                self.send_header("Set-Cookie", f"session_user={urllib.parse.quote(u_in)}; Path=/; HttpOnly; SameSite=Lax{max_age}")
                 self.send_header("Location", "/")
                 self.end_headers()
             else: res(get_welcome_page("اسم المستخدم أو كلمة المرور غير صحيحة"))
