@@ -60,6 +60,25 @@ def preset_options(selected=""):
 def hash_pass(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
+def find_login_user(db, identifier):
+    """يقبل اسم المستخدم أو البريد الإلكتروني أو رقم الهاتف."""
+    identifier = str(identifier or "").strip()
+    if not identifier:
+        return None
+    users = db.get("users", {})
+    if identifier in users:
+        return identifier
+    lowered = identifier.lower()
+    for username, account in users.items():
+        if str(account.get("email", "")).strip().lower() == lowered:
+            return username
+    compact_phone = "".join(char for char in identifier if char.isdigit() or char == "+")
+    for username, account in users.items():
+        saved_phone = "".join(char for char in str(account.get("phone", "")) if char.isdigit() or char == "+")
+        if compact_phone and saved_phone and compact_phone == saved_phone:
+            return username
+    return None
+
 def now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
