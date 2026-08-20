@@ -23,7 +23,7 @@
 #   minimumReleaseAgeExclude:
 #     - react
 #     - typescript
-#
+# 
 # ============================================================================
 minimumReleaseAge: 1440
 
